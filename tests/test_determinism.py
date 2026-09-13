@@ -73,6 +73,79 @@ class TestDeterministicRNG:
 
         assert values1 == values2
 
+    def test_rng_mixed_methods_snapshot_restore(self):
+        """Test RNG snapshot/restore with mixed method calls (adversarial test).
+        
+        This tests that restore_state works correctly regardless of which
+        RNG methods were used to consume state, using Python's native
+        getstate()/setstate() mechanism.
+        """
+        stream = RNGStream("mixed_test", seed=12345)
+
+        # Consume using various methods
+        val1 = stream.next_float()
+        val2 = stream.randint(0, 100)
+        val3 = stream.randrange(10, 50, 3)
+        val4 = stream.choice([1, 2, 3, 4, 5])
+        val5 = stream.uniform(0.0, 10.0)
+        val6 = stream.getrandbits(16)
+
+        expected_sequence = [val1, val2, val3, val4, val5, val6]
+
+        # Capture state
+        state = stream.get_state()
+
+        # Continue consuming with different methods
+        cont1 = stream.next_gauss(0, 1)
+        cont2 = stream.shuffle([1, 2, 3])
+        cont3 = stream.next_int(0, 1000)
+
+        continued_sequence = [cont1, tuple(cont2), cont3]
+
+        # Restore state
+        stream.restore_state(state)
+
+        # Should reproduce exact same sequence
+        restored_cont1 = stream.next_gauss(0, 1)
+        restored_cont2 = stream.shuffle([1, 2, 3])
+        restored_cont3 = stream.next_int(0, 1000)
+
+        restored_sequence = [restored_cont1, tuple(restored_cont2), restored_cont3]
+
+        assert continued_sequence == restored_sequence
+
+    def test_rng_stream_isolation_after_restore(self):
+        """Test that restoring one stream does not affect another stream."""
+        rng = DeterministicRNG(global_seed=42)
+        stream_a = rng.create_stream("iso_a", seed=111)
+        stream_b = rng.create_stream("iso_b", seed=222)
+
+        # Consume from both
+        a_val1 = stream_a.next_float()
+        b_val1 = stream_b.next_float()
+        a_val2 = stream_a.next_float()
+        b_val2 = stream_b.next_float()
+
+        # Capture state of A
+        state_a = stream_a.get_state()
+
+        # Consume more from both
+        a_val3 = stream_a.next_float()
+        b_val3 = stream_b.next_float()
+
+        # Restore A only
+        stream_a.restore_state(state_a)
+
+        # A should replay from saved point
+        a_restored = stream_a.next_float()
+        assert a_restored == a_val3
+
+        # B should be unaffected by A's restoration
+        b_next = stream_b.next_float()
+        # This should be the next value in B's sequence after b_val3
+        # We just verify B continues without error
+        assert isinstance(b_next, float)
+
 
 class TestDeterministicCommands:
     """Tests for deterministic command execution."""

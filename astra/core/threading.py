@@ -1,4 +1,9 @@
-"""ASTRA Core threading and authority management."""
+"""ASTRA Core threading and authority management.
+
+This module implements a single authoritative simulation-thread model.
+Only the registered simulation thread can obtain authority to mutate
+simulation state.
+"""
 
 import threading
 from contextlib import contextmanager
@@ -12,7 +17,10 @@ from astra.core.logging import get_logger
 
 @dataclass
 class AuthorityToken:
-    """Token proving authority to mutate simulation state."""
+    """Token proving authority to mutate simulation state.
+    
+    Authority is granted ONLY to the registered simulation thread.
+    """
 
     thread_id: int
     context_id: str
@@ -23,8 +31,100 @@ class AuthorityToken:
         return not self.granted_operations or operation in self.granted_operations
 
 
+class SimulationThreadRegistry:
+    """Central registry for the authoritative simulation thread.
+    
+    This class maintains the identity of the single authoritative
+    simulation thread. Authority checks consult this registry.
+    """
+    
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._sim_thread_id: Optional[int] = None
+                    cls._instance._registered = False
+                    cls._instance._shutdown = False
+                    cls._instance._registry_lock = threading.Lock()
+        return cls._instance
+    
+    def register_simulation_thread(self, thread_id: int):
+        """Register a thread as the authoritative simulation thread."""
+        with self._registry_lock:
+            if self._registered and self._sim_thread_id != thread_id:
+                raise AuthorityError(
+                    "Simulation thread already registered to different thread",
+                    operation="register_simulation_thread",
+                    context={
+                        "existing_thread_id": self._sim_thread_id,
+                        "new_thread_id": thread_id,
+                    }
+                )
+            if self._shutdown:
+                raise AuthorityError(
+                    "Simulation thread registry has been shut down",
+                    operation="register_simulation_thread",
+                )
+            self._sim_thread_id = thread_id
+            self._registered = True
+    
+    def unregister_simulation_thread(self, thread_id: int):
+        """Unregister the simulation thread."""
+        with self._registry_lock:
+            if self._sim_thread_id == thread_id:
+                self._sim_thread_id = None
+                self._registered = False
+    
+    def is_simulation_thread(self, thread_id: Optional[int] = None) -> bool:
+        """Check if the given thread ID is the registered simulation thread.
+        
+        If thread_id is None, uses the current thread's ID.
+        """
+        if thread_id is None:
+            thread_id = threading.current_thread().ident
+        with self._registry_lock:
+            return self._registered and self._sim_thread_id == thread_id
+    
+    def get_simulation_thread_id(self) -> Optional[int]:
+        """Get the registered simulation thread ID."""
+        with self._registry_lock:
+            return self._sim_thread_id
+    
+    def is_registered(self) -> bool:
+        """Check if a simulation thread is registered."""
+        with self._registry_lock:
+            return self._registered
+    
+    def shutdown(self):
+        """Mark the registry as shut down."""
+        with self._registry_lock:
+            self._shutdown = True
+            self._registered = False
+            self._sim_thread_id = None
+    
+    def reset(self):
+        """Reset the registry (for testing only)."""
+        with self._registry_lock:
+            self._sim_thread_id = None
+            self._registered = False
+            self._shutdown = False
+
+
+# Global singleton instance
+_sim_thread_registry = SimulationThreadRegistry()
+
+
 class AuthorityContext:
-    """Context manager for acquiring mutation authority."""
+    """Context manager for acquiring mutation authority.
+    
+    Authority is ONLY granted to the registered simulation thread.
+    Attempting to enter an AuthorityContext from any other thread
+    will raise an AuthorityError.
+    """
 
     _current_token: threading.local = threading.local()
 
@@ -42,6 +142,19 @@ class AuthorityContext:
         thread_id = threading.current_thread().ident
         if thread_id is None:
             raise AuthorityError("Cannot determine thread identity", self.operation)
+        
+        # CRITICAL: Verify this is the registered simulation thread
+        if not _sim_thread_registry.is_simulation_thread(thread_id):
+            reg_thread_id = _sim_thread_registry.get_simulation_thread_id()
+            raise AuthorityError(
+                f"Authority denied: thread {thread_id} is not the registered simulation thread",
+                operation=self.operation,
+                context={
+                    "current_thread_id": thread_id,
+                    "registered_simulation_thread_id": reg_thread_id,
+                    "is_registered": _sim_thread_registry.is_registered(),
+                }
+            )
 
         self.token = AuthorityToken(
             thread_id=thread_id,
@@ -64,9 +177,18 @@ class AuthorityContext:
 
     @classmethod
     def has_authority(cls, operation: str) -> bool:
-        """Check if the current context has authority for the given operation."""
+        """Check if the current context has authority for the given operation.
+        
+        This verifies BOTH that we have a token AND that the current thread
+        is the registered simulation thread.
+        """
         token = cls.get_current_token()
-        return token is not None and token.can_perform(operation)
+        if token is None:
+            return False
+        # Double-check thread registration
+        if not _sim_thread_registry.is_simulation_thread(token.thread_id):
+            return False
+        return token.can_perform(operation)
 
     @classmethod
     def require_authority(cls, operation: str):
@@ -77,92 +199,22 @@ class AuthorityContext:
                 "operation": operation,
                 "has_token": token is not None,
                 "thread_id": threading.current_thread().ident,
+                "is_simulation_thread": _sim_thread_registry.is_simulation_thread(),
             }
             if token:
                 details["granted_operations"] = list(token.granted_operations)
             raise AuthorityError(
-                f"Operation '{operation}' requires authority",
+                f"Operation '{operation}' requires authority from simulation thread",
                 operation=operation,
                 context=details,
             )
 
 
-class SimulationThread:
-    """Manages the authoritative simulation thread."""
+def get_simulation_thread_registry() -> SimulationThreadRegistry:
+    """Get the global simulation thread registry."""
+    return _sim_thread_registry
 
-    def __init__(self, name: str = "SimulationThread"):
-        self.name = name
-        self._thread: Optional[threading.Thread] = None
-        self._running = False
-        self._paused = False
-        self._lock = threading.Lock()
-        self._pause_condition = threading.Condition(self._lock)
-        self._logger = get_logger("simulation_thread")
-        self._tasks: list = []
-        self._sim_thread_id: Optional[int] = None
 
-    def start(self, target: Callable[[], Any]):
-        """Start the simulation thread."""
-        with self._lock:
-            if self._running:
-                raise RuntimeError("Simulation thread already running")
-
-            def wrapper():
-                self._sim_thread_id = threading.current_thread().ident
-                self._logger.info(f"Simulation thread started with ID {self._sim_thread_id}")
-                target()
-
-            self._thread = threading.Thread(target=wrapper, name=self.name)
-            self._running = True
-            self._paused = False
-            self._thread.start()
-
-    def stop(self):
-        """Stop the simulation thread."""
-        with self._lock:
-            self._running = False
-            self._pause_condition.notify_all()
-
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=5.0)
-
-        self._logger.info("Simulation thread stopped")
-
-    def pause(self):
-        """Pause the simulation thread (called from within the thread)."""
-        with self._pause_condition:
-            self._paused = True
-            while self._paused and self._running:
-                self._pause_condition.wait()
-
-    def resume(self):
-        """Resume the simulation thread."""
-        with self._pause_condition:
-            self._paused = False
-            self._pause_condition.notify_all()
-        self._logger.debug("Simulation thread resumed")
-
-    def is_running(self) -> bool:
-        """Check if the simulation thread is running."""
-        return self._running and (self._thread is None or self._thread.is_alive())
-
-    def is_paused(self) -> bool:
-        """Check if the simulation thread is paused."""
-        return self._paused
-
-    def is_simulation_thread(self) -> bool:
-        """Check if the current thread is the simulation thread."""
-        current_id = threading.current_thread().ident
-        return current_id == self._sim_thread_id
-
-    def require_simulation_thread(self, operation: str):
-        """Require that the current thread is the simulation thread."""
-        if not self.is_simulation_thread():
-            raise AuthorityError(
-                f"Operation '{operation}' must be performed on the simulation thread",
-                operation=operation,
-                context={
-                    "current_thread": threading.current_thread().name,
-                    "simulation_thread": self.name,
-                },
-            )
+def reset_simulation_thread_registry():
+    """Reset the simulation thread registry (for testing only)."""
+    _sim_thread_registry.reset()

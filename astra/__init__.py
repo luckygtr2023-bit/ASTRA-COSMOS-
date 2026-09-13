@@ -8,7 +8,12 @@ from astra.core.exceptions import AstraError, AuthorityError, ResourceError
 from astra.core.ids import EntityId, CommandId, EventId, FrameId
 from astra.core.logging import get_logger
 from astra.core.config import Config
-from astra.core.threading import SimulationThread, AuthorityContext
+from astra.core.threading import (
+    SimulationThreadRegistry,
+    AuthorityContext,
+    get_simulation_thread_registry,
+    reset_simulation_thread_registry,
+)
 from astra.core.events import Event, EventBus, EventPriority
 from astra.core.rng import DeterministicRNG, RNGStream
 from astra.core.commands import Command, CommandDispatcher, CommandHistory
@@ -41,8 +46,10 @@ __all__ = [
     # Config
     "Config",
     # Threading
-    "SimulationThread",
+    "SimulationThreadRegistry",
     "AuthorityContext",
+    "get_simulation_thread_registry",
+    "reset_simulation_thread_registry",
     # Events
     "Event",
     "EventBus",

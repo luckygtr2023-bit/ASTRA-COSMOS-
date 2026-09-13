@@ -1,59 +1,55 @@
-```gitignore
+```
 # Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.py~
-*.pyc.swp
-*.pyc.swo
-*.egg-info/
-*.egg
-
-# Testing
-.pytest_cache/
+.Python
+env/
+venv/
+.venv/
+.ENV
+.env
+*.env
+.env.*
+.env.local
 .coverage
 coverage/
 htmlcov/
+.pytest_cache/
+.mypy_cache/
+.hypothesis/
 
-# Logs and temp files
+# Build artifacts
+dist/
+build/
+*.egg-info/
+.sconsign.dblite
+._*
+*.so
+*.dylib
+*.dll
+
+# Testing
+.tests/
+test-build/
+
+# Logs
 *.log
-*.tmp
-*.swp
-*.swo
 
-# Environment
-.env
-.env.local
-.env.*
-venv/
-.venv/
-env/
-ENV/
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 
-# Editors
+# Editor specific
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# Build and distribution
-dist/
-build/
-target/
-*.so
-*.dylib
-*.dll
-*.exe
-*.out
-
-# Cache
-.mypy_cache/
-.nuitka-cache/
-.julia/
-.zig-cache/
-
-# OS
-.DS_Store
-Thumbs.db
+*~
 ```
