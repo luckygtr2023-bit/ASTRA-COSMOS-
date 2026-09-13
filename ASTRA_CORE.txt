@@ -1,0 +1,155 @@
+# ASTRA CORE Specification v0.1.1
+
+## Overview
+
+ASTRA CORE is the foundational runtime layer for the ASTRA simulation engine.
+It provides infrastructure for mathematics, physics, motion, spacetime,
+astronomy, celestial systems, cosmology, observation, rendering, graphics,
+UI, and backend/integration systems.
+
+## Core Responsibilities
+
+- Engine lifecycle management
+- Simulation state management
+- Simulation clock
+- Deterministic execution
+- Command dispatch
+- Event infrastructure
+- Entity management
+- Coordinate/frame foundations
+- Origin rebasing
+- Deterministic RNG
+- Persistence
+- Resource management
+- Service boundaries
+- Recovery boundaries
+- Plugin boundaries
+- Configuration
+- Logging
+- Testing infrastructure
+- Thread/mutation authority
+
+## Engine Lifecycle States
+
+- CREATED: Engine initialized but not ready
+- READY: Engine ready to run simulations
+- RUNNING: Engine actively simulating
+- PAUSED: Engine paused (state preserved)
+- STOPPED: Engine stopped (may require reset to restart)
+- ERROR: Engine encountered an error
+
+## Simulation Authority
+
+Only the authorized simulation thread/context may mutate authoritative
+simulation state. Illegal mutations must be detectable and rejected.
+
+## Deterministic Command System
+
+Commands must have stable identity/order with:
+- Tick identification
+- Sequence identity
+- Command identity
+- Execution order
+- History tracking
+- Replay behavior
+
+Replay must preserve historical ordering semantics.
+
+## Deterministic RNG
+
+- Isolated streams per subsystem
+- Stable seed support
+- Stream creation/restoration
+- Snapshot/restore capability
+
+## Entity Management
+
+- Entity creation/destruction
+- Component attachment
+- Queries
+- Deterministic iteration
+- Thread-safe mutation
+
+## Coordinate/Frame Foundation
+
+- Frame registration
+- Frame identity
+- Parent/child relationships
+- Origin representation
+- Coordinate transformation boundaries
+
+## Origin Rebase
+
+Distinguish:
+- REQUEST: Request to rebase origin
+- EXECUTION: Authorized execution of rebase
+- OBSERVATION: Query current state
+
+Rebasing changes coordinate representation while preserving physical
+relative positions.
+
+## Time System
+
+Support modes:
+- INTERNAL_REALTIME
+- INTERNAL_DETERMINISTIC
+- EXTERNAL_SYNC
+
+Distinguish:
+- Simulation time
+- Timeline seeking
+- Replay
+- Observation/lookback
+- Physical time travel (NOT implied by timeline seek)
+
+## Event System
+
+Distinguish:
+- Simulation Events (deterministic)
+- External/I/O Events (non-deterministic)
+
+Features:
+- Subscription/unsubscription
+- Priority
+- Deterministic ordering
+- Handler failure isolation
+
+## Persistence
+
+Requirements:
+- Atomic writes
+- Integrity verification (checksums)
+- Schema/version identification
+- Corruption detection
+- Compatible loading
+- Explicit incompatible-version behavior
+
+## Resource Management
+
+Lifecycle:
+- Acquire
+- Release
+- Reference counting
+- Cleanup
+- Unknown-resource detection
+- Double-release detection
+
+## Recovery
+
+Policies:
+- FAIL_FAST
+- RETRY_STEP
+- DROP_EVENT
+
+## Threading Rules
+
+- Single authoritative mutation context
+- Safe snapshot iteration (no yielding while holding locks)
+- Deadlock prevention
+
+## Deterministic Guarantees
+
+- Same inputs produce same outputs
+- Replay produces identical results
+- RNG streams are isolated
+- Command ordering is preserved
