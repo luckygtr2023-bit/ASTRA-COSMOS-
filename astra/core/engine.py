@@ -13,6 +13,7 @@ from astra.core.threading import (
     SimulationThreadRegistry,
     AuthorityContext,
     get_simulation_thread_registry,
+    SimulationThread,
 )
 from astra.core.time import SimulationClock, TimeMode
 from astra.core.events import EventBus, Event, EventPriority

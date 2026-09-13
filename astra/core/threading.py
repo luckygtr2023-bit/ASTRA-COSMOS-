@@ -9,10 +9,22 @@ import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Optional, Callable, Any, Set
+from enum import Enum
 import weakref
+import time as time_module
 
-from astra.core.exceptions import AuthorityError
+from astra.core.exceptions import AuthorityError, AstraError
 from astra.core.logging import get_logger
+
+
+class SimulationThreadState(Enum):
+    """Simulation thread lifecycle states."""
+    
+    CREATED = "created"
+    STARTING = "starting"
+    RUNNING = "running"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
 
 
 @dataclass
@@ -116,6 +128,162 @@ class SimulationThreadRegistry:
 
 # Global singleton instance
 _sim_thread_registry = SimulationThreadRegistry()
+
+
+class SimulationThread:
+    """The authoritative simulation thread.
+    
+    This class owns and manages the actual Python thread that performs
+    authoritative simulation mutations. It registers its thread identity
+    with the SimulationThreadRegistry upon startup and unregisters upon
+    shutdown.
+    """
+    
+    def __init__(self, name: str = "ASTRA_Simulation"):
+        self._name = name
+        self._state = SimulationThreadState.CREATED
+        self._thread: Optional[threading.Thread] = None
+        self._logger = get_logger("sim_thread")
+        self._lock = threading.Lock()
+        self._work_queue: list = []
+        self._work_available = threading.Event()
+        self._stop_requested = False
+        self._registry = _sim_thread_registry
+    
+    @property
+    def name(self) -> str:
+        """Get the thread name."""
+        return self._name
+    
+    @property
+    def state(self) -> SimulationThreadState:
+        """Get the current thread state."""
+        return self._state
+    
+    @property
+    def thread_id(self) -> Optional[int]:
+        """Get the underlying thread's ID (None if not started)."""
+        if self._thread and self._thread.ident:
+            return self._thread.ident
+        return None
+    
+    def start(self):
+        """Start the simulation thread."""
+        with self._lock:
+            if self._state != SimulationThreadState.CREATED:
+                raise AstraError(
+                    f"Cannot start simulation thread from state: {self._state.value}"
+                )
+            
+            self._state = SimulationThreadState.STARTING
+            self._stop_requested = False
+            self._thread = threading.Thread(target=self._run_loop, name=self._name)
+            self._thread.daemon = True
+            self._thread.start()
+            
+            # Wait briefly for thread to register itself
+            self._work_available.wait(timeout=5.0)
+            
+            if self._state != SimulationThreadState.RUNNING:
+                raise AstraError("Simulation thread failed to start properly")
+            
+            self._logger.info(f"Simulation thread '{self._name}' started with ID {self._thread.ident}")
+    
+    def _run_loop(self):
+        """Main loop running on the simulation thread."""
+        try:
+            # Register this thread as the authoritative simulation thread
+            thread_id = threading.current_thread().ident
+            if thread_id is None:
+                raise AuthorityError("Cannot determine thread identity", "simulation_thread_start")
+            
+            self._registry.register_simulation_thread(thread_id)
+            self._state = SimulationThreadState.RUNNING
+            self._work_available.set()  # Signal that we're ready
+            
+            self._logger.debug(f"Simulation thread registered with ID {thread_id}")
+            
+            while not self._stop_requested:
+                # Process any pending work
+                work_items = []
+                with self._lock:
+                    if self._work_queue:
+                        work_items = self._work_queue[:]
+                        self._work_queue.clear()
+                
+                for work_func, result_holder in work_items:
+                    try:
+                        result = work_func()
+                        if result_holder is not None:
+                            result_holder.append(result)
+                    except Exception as e:
+                        self._logger.error(f"Work item failed: {e}")
+                        if result_holder is not None:
+                            result_holder.append(e)
+                
+                # Small sleep to prevent busy-waiting
+                self._work_available.wait(timeout=0.001)
+                self._work_available.clear()
+            
+        except Exception as e:
+            self._logger.error(f"Simulation thread error: {e}")
+            self._state = SimulationThreadState.STOPPED
+            raise
+        finally:
+            # Unregister on exit
+            try:
+                thread_id = threading.current_thread().ident
+                if thread_id:
+                    self._registry.unregister_simulation_thread(thread_id)
+            except Exception:
+                pass
+    
+    def execute(self, work_func: Callable[[], Any], timeout: Optional[float] = None) -> Any:
+        """Execute a function on the simulation thread.
+        
+        This is used to marshal work onto the authoritative thread.
+        """
+        if self._state != SimulationThreadState.RUNNING:
+            raise AstraError(
+                f"Cannot execute work: simulation thread is {self._state.value}"
+            )
+        
+        result_holder: list = []
+        with self._lock:
+            self._work_queue.append((work_func, result_holder))
+            self._work_available.set()
+        
+        # Wait for result
+        start_time = time_module.time()
+        while not result_holder:
+            if timeout and (time_module.time() - start_time) > timeout:
+                raise AstraError(f"Work execution timed out after {timeout}s")
+            time_module.sleep(0.001)
+        
+        result = result_holder[0]
+        if isinstance(result, Exception):
+            raise result
+        return result
+    
+    def stop(self, timeout: Optional[float] = 5.0):
+        """Stop the simulation thread."""
+        with self._lock:
+            if self._state not in (SimulationThreadState.RUNNING, SimulationThreadState.STARTING):
+                return
+            
+            self._state = SimulationThreadState.STOPPING
+            self._stop_requested = True
+            self._work_available.set()
+        
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=timeout)
+        
+        self._state = SimulationThreadState.STOPPED
+        self._logger.info(f"Simulation thread '{self._name}' stopped")
+    
+    def is_alive(self) -> bool:
+        """Check if the underlying thread is alive."""
+        return self._thread is not None and self._thread.is_alive()
 
 
 class AuthorityContext:
