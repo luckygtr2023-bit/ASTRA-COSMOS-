@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "astra-core"
+version = "0.1.1"
+description = "ASTRA Core - Foundational runtime layer for ASTRA simulation engine"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "ASTRA Team", email = "astra@example.com"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+keywords = ["simulation", "game-engine", "deterministic", "ecs"]
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+]
+
+[project.urls]
+Homepage = "https://github.com/astra/astra-core"
+Documentation = "https://astra.github.io/docs"
+Repository = "https://github.com/astra/astra-core.git"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["astra*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

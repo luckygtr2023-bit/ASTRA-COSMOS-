@@ -1,0 +1,59 @@
+```gitignore
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.py~
+*.pyc.swp
+*.pyc.swo
+*.egg-info/
+*.egg
+
+# Testing
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.*
+venv/
+.venv/
+env/
+ENV/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build and distribution
+dist/
+build/
+target/
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+
+# Cache
+.mypy_cache/
+.nuitka-cache/
+.julia/
+.zig-cache/
+
+# OS
+.DS_Store
+Thumbs.db
+```
