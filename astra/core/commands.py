@@ -5,10 +5,12 @@ from typing import Dict, List, Callable, Any, Optional, Tuple
 from enum import Enum
 import threading
 from collections import defaultdict
+import copy as _copy
 
 from astra.core.ids import CommandId
 from astra.core.logging import get_logger
 from astra.core.exceptions import CommandError
+from astra.core.threading import AuthorityContext
 
 
 class CommandStatus(Enum):
@@ -57,6 +59,34 @@ class Command:
         if self.tick != other.tick:
             return self.tick < other.tick
         return self.sequence < other.sequence
+
+    def to_serializable(self) -> dict:
+        """Serialize command to a dictionary for persistence."""
+        return {
+            "id": str(self.id),
+            "name": self.name,
+            "tick": self.tick,
+            "sequence": self.sequence,
+            "data": self.data,
+            "status": self.status.value,
+            "result": self.result,
+            "error": self.error,
+        }
+
+    @classmethod
+    def from_serializable(cls, data: dict) -> "Command":
+        """Deserialize command from a dictionary."""
+        cmd = cls(
+            id=CommandId(data["id"]),
+            name=data["name"],
+            tick=data["tick"],
+            sequence=data["sequence"],
+            data=data.get("data", {}),
+            status=CommandStatus(data["status"]),
+            result=data.get("result"),
+            error=data.get("error"),
+        )
+        return cmd
 
 
 # Handler type
@@ -118,6 +148,14 @@ class CommandHistory:
         # Sort deterministically
         return sorted(commands)
 
+    def restore_from_snapshot(self, commands_data: list):
+        """Restore command history from a snapshot."""
+        with self._lock:
+            self._commands = [Command.from_serializable(d) for d in commands_data]
+            self._by_tick.clear()
+            for cmd in self._commands:
+                self._by_tick[cmd.tick].append(cmd)
+
 
 class CommandDispatcher:
     """Dispatches and executes commands deterministically."""
@@ -167,6 +205,7 @@ class CommandDispatcher:
         
         Returns list of (command, result, error) tuples.
         """
+        AuthorityContext.require_authority("command.execute")
         results = []
 
         with self._lock:
@@ -209,23 +248,25 @@ class CommandDispatcher:
 
     def replay_command(self, command: Command) -> Any:
         """Replay a single command from history."""
-        registration = self._handlers.get(command.name)
+        # Work on a copy to avoid mutating the original command in history
+        replay = _copy.copy(command)
+        registration = self._handlers.get(replay.name)
         if registration is None:
             raise CommandError(
-                f"No handler for replay: {command.name}",
-                command_id=command.id.value,
-                tick=command.tick,
+                f"No handler for replay: {replay.name}",
+                command_id=replay.id.value,
+                tick=replay.tick,
             )
 
-        command.status = CommandStatus.EXECUTING
+        replay.status = CommandStatus.EXECUTING
         try:
-            result = registration.handler(command)
-            command.status = CommandStatus.COMPLETED
-            command.result = result
+            result = registration.handler(replay)
+            replay.status = CommandStatus.COMPLETED
+            replay.result = result
             return result
         except Exception as e:
-            command.status = CommandStatus.FAILED
-            command.error = str(e)
+            replay.status = CommandStatus.FAILED
+            replay.error = str(e)
             raise
 
     def get_history(self) -> CommandHistory:
@@ -241,4 +282,14 @@ class CommandDispatcher:
         """Clear all pending commands."""
         with self._lock:
             self._pending.clear()
-            self._sequence_counter = 0
+
+    def restore_from_snapshot(self, commands_data: dict):
+        """Restore command dispatcher state from a snapshot."""
+        with self._lock:
+            if "commands" in commands_data:
+                self._history.restore_from_snapshot(commands_data["commands"])
+            if "sequence_counter" in commands_data:
+                self._sequence_counter = commands_data["sequence_counter"]
+            elif self._history._commands:
+                max_seq = max(c.sequence for c in self._history._commands)
+                self._sequence_counter = max(self._sequence_counter, max_seq)

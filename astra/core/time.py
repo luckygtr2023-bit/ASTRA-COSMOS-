@@ -97,12 +97,14 @@ class SimulationClock:
                     self._logger.error(f"Resume callback failed: {e}")
 
     def advance(self) -> int:
-        """Advance simulation by one tick. Returns the new tick number."""
+        """Advance simulation by one tick. Returns the new tick number.
+        
+        Note: Unlike pause(), advance() is allowed even when paused,
+        to permit single-step debugging.
+        """
         with self._lock:
             if not self._is_running:
                 raise TimeError("Cannot advance: clock not running", "advance")
-            if self._is_paused:
-                raise TimeError("Cannot advance: clock is paused", "advance")
 
             self._current_tick += 1
             self._simulation_time += self._tick_duration
@@ -116,11 +118,16 @@ class SimulationClock:
 
             return self._current_tick
 
-    def seek(self, target_tick: int):
+    def seek(self, target_tick: int, force: bool = False):
         """Seek to a specific tick (for replay/timeline control).
         
         Note: This is timeline seeking, NOT physical time travel.
         The simulation state must be reset/reloaded appropriately.
+        
+        Args:
+            target_tick: The tick to seek to.
+            force: If True, allow backward seeks. If False, raise TimeError
+                for backward seeks in INTERNAL_DETERMINISTIC mode.
         """
         with self._lock:
             if target_tick < 0:
@@ -129,10 +136,11 @@ class SimulationClock:
                     "seek",
                     float(target_tick),
                 )
-            if target_tick < self._current_tick and self._mode == TimeMode.EXTERNAL_SYNC:
-                self._logger.warning(
-                    f"Backward seek in EXTERNAL_SYNC mode: {self._current_tick} -> {target_tick}"
-                )
+            if target_tick < self._current_tick and not force:
+                raise TimeError(
+                    f"Backward seek forbidden (tick {self._current_tick} -> "
+                    f"{target_tick}); use SimulationClock.restore_state or Engine.load",
+                    "seek", float(target_tick))
 
             self._current_tick = target_tick
             self._simulation_time = target_tick * self._tick_duration
@@ -184,21 +192,25 @@ class SimulationClock:
 
     def get_current_tick(self) -> int:
         """Get the current simulation tick."""
-        return self._current_tick
+        with self._lock:
+            return self._current_tick
 
     def get_simulation_time(self) -> float:
         """Get the current simulation time in seconds."""
-        return self._simulation_time
+        with self._lock:
+            return self._simulation_time
 
     def get_real_time(self) -> float:
         """Get elapsed real time in seconds."""
-        if not self._is_running:
-            return 0.0
-        return time_module.time() - self._real_time_start
+        with self._lock:
+            if not self._is_running:
+                return 0.0
+            return time_module.time() - self._real_time_start
 
     def get_tick_duration(self) -> float:
         """Get the tick duration in seconds."""
-        return self._tick_duration
+        with self._lock:
+            return self._tick_duration
 
     def set_tick_duration(self, duration: float):
         """Set the tick duration in seconds."""
@@ -210,27 +222,31 @@ class SimulationClock:
 
     def get_mode(self) -> TimeMode:
         """Get the current time mode."""
-        return self._mode
+        with self._lock:
+            return self._mode
 
     def is_paused(self) -> bool:
         """Check if the clock is paused."""
-        return self._is_paused
+        with self._lock:
+            return self._is_paused
 
     def is_running(self) -> bool:
         """Check if the clock is running."""
-        return self._is_running
+        with self._lock:
+            return self._is_running
 
     def get_state(self) -> TimeState:
         """Get a snapshot of the clock state."""
-        return TimeState(
-            mode=self._mode,
-            current_tick=self._current_tick,
-            simulation_time=self._simulation_time,
-            real_time=self.get_real_time(),
-            tick_duration=self._tick_duration,
-            is_paused=self._is_paused,
-            is_running=self._is_running,
-        )
+        with self._lock:
+            return TimeState(
+                mode=self._mode,
+                current_tick=self._current_tick,
+                simulation_time=self._simulation_time,
+                real_time=self.get_real_time(),
+                tick_duration=self._tick_duration,
+                is_paused=self._is_paused,
+                is_running=self._is_running,
+            )
 
     def reset(self):
         """Reset the clock to initial state."""
@@ -241,3 +257,15 @@ class SimulationClock:
             self._is_paused = False
             self._is_running = False
             self._logger.debug("Simulation clock reset")
+
+    def restore_state(self, tick, simulation_time, mode, tick_duration, is_running, is_paused):
+        """Restore clock state from a snapshot (for Engine.load)."""
+        with self._lock:
+            self._current_tick = tick
+            self._simulation_time = simulation_time
+            self._mode = mode
+            self._tick_duration = tick_duration
+            self._is_running = is_running
+            self._is_paused = is_paused
+            self._real_time_start = (
+                time_module.time() - simulation_time if is_running else 0.0)
