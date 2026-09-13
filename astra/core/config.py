@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List
 import json
 import os
+import warnings
 
 
 @dataclass
@@ -48,7 +49,13 @@ class Config:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Config":
         """Create a Config from a dictionary."""
-        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+        known = cls.__dataclass_fields__
+        unknown = [k for k in data if k not in known]
+        if unknown:
+            warnings.warn(
+                f"Unknown configuration keys ignored: {sorted(unknown)}",
+                UserWarning, stacklevel=2)
+        return cls(**{k: v for k, v in data.items() if k in known})
 
     @classmethod
     def from_json(cls, path: str) -> "Config":

@@ -59,7 +59,7 @@ class SimulationThreadRegistry:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
                     cls._instance._sim_thread_id: Optional[int] = None
-                    cls._instance._registered = False
+                    cls._instance._registration_count = 0
                     cls._instance._shutdown = False
                     cls._instance._registry_lock = threading.Lock()
         return cls._instance
@@ -67,7 +67,12 @@ class SimulationThreadRegistry:
     def register_simulation_thread(self, thread_id: int):
         """Register a thread as the authoritative simulation thread."""
         with self._registry_lock:
-            if self._registered and self._sim_thread_id != thread_id:
+            if self._shutdown:
+                raise AuthorityError(
+                    "Simulation thread registry has been shut down",
+                    operation="register_simulation_thread",
+                )
+            if self._sim_thread_id is not None and self._sim_thread_id != thread_id:
                 raise AuthorityError(
                     "Simulation thread already registered to different thread",
                     operation="register_simulation_thread",
@@ -76,20 +81,17 @@ class SimulationThreadRegistry:
                         "new_thread_id": thread_id,
                     }
                 )
-            if self._shutdown:
-                raise AuthorityError(
-                    "Simulation thread registry has been shut down",
-                    operation="register_simulation_thread",
-                )
             self._sim_thread_id = thread_id
-            self._registered = True
+            self._registration_count += 1
     
     def unregister_simulation_thread(self, thread_id: int):
         """Unregister the simulation thread."""
         with self._registry_lock:
-            if self._sim_thread_id == thread_id:
+            if self._sim_thread_id != thread_id:
+                return
+            self._registration_count = max(0, self._registration_count - 1)
+            if self._registration_count == 0:
                 self._sim_thread_id = None
-                self._registered = False
     
     def is_simulation_thread(self, thread_id: Optional[int] = None) -> bool:
         """Check if the given thread ID is the registered simulation thread.
@@ -99,7 +101,7 @@ class SimulationThreadRegistry:
         if thread_id is None:
             thread_id = threading.current_thread().ident
         with self._registry_lock:
-            return self._registered and self._sim_thread_id == thread_id
+            return self._sim_thread_id is not None and self._sim_thread_id == thread_id
     
     def get_simulation_thread_id(self) -> Optional[int]:
         """Get the registered simulation thread ID."""
@@ -109,20 +111,20 @@ class SimulationThreadRegistry:
     def is_registered(self) -> bool:
         """Check if a simulation thread is registered."""
         with self._registry_lock:
-            return self._registered
+            return self._sim_thread_id is not None
     
     def shutdown(self):
         """Mark the registry as shut down."""
         with self._registry_lock:
             self._shutdown = True
-            self._registered = False
+            self._registration_count = 0
             self._sim_thread_id = None
     
     def reset(self):
         """Reset the registry (for testing only)."""
         with self._registry_lock:
             self._sim_thread_id = None
-            self._registered = False
+            self._registration_count = 0
             self._shutdown = False
 
 
@@ -294,7 +296,16 @@ class AuthorityContext:
     will raise an AuthorityError.
     """
 
-    _current_token: threading.local = threading.local()
+    _token_stack: threading.local = threading.local()
+
+    @classmethod
+    def _stack(cls) -> list:
+        """Get or create the per-thread token stack."""
+        stack = getattr(cls._token_stack, "stack", None)
+        if stack is None:
+            stack = []
+            cls._token_stack.stack = stack
+        return stack
 
     def __init__(
         self,
@@ -329,19 +340,22 @@ class AuthorityContext:
             context_id=f"{thread_id}_{id(self)}",
             granted_operations=self.granted_operations.copy() if self.granted_operations else set(),
         )
-        AuthorityContext._current_token.value = self.token
+        self._stack().append(self.token)
         self._logger.debug(f"Authority granted for {self.operation}", context_id=self.token.context_id)
         return self.token
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        AuthorityContext._current_token.value = None
+        st = self._stack()
+        if st:
+            st.pop()
         self._logger.debug(f"Authority released for {self.operation}")
         return False
 
     @classmethod
     def get_current_token(cls) -> Optional[AuthorityToken]:
         """Get the current authority token for this thread."""
-        return getattr(cls._current_token, "value", None)
+        st = cls._stack()
+        return st[-1] if st else None
 
     @classmethod
     def has_authority(cls, operation: str) -> bool:

@@ -20,6 +20,24 @@ class RNGState:
     seed: int
     internal_state: Any  # The opaque state tuple from random.Random.getstate()
 
+    def to_serializable(self) -> dict:
+        """Serialize RNGState to a JSON-compatible dictionary."""
+        version, state_tuple, gauss_next = self.internal_state
+        return {
+            "seed": self.seed,
+            "version": version,
+            "state_tuple": list(state_tuple),
+            "gauss_next": gauss_next,
+        }
+
+    @classmethod
+    def from_serializable(cls, data: dict) -> "RNGState":
+        """Deserialize RNGState from a JSON-compatible dictionary."""
+        return cls(
+            seed=data["seed"],
+            internal_state=(data["version"], tuple(data["state_tuple"]), data["gauss_next"]),
+        )
+
 
 class RNGStream:
     """Isolated deterministic random number stream.
@@ -105,18 +123,20 @@ class RNGStream:
         This restores the exact internal state, ensuring subsequent calls
         produce identical results to the original execution.
         """
-        if state.seed != self._seed:
-            raise ValueError(
-                f"Cannot restore state: seed mismatch ({state.seed} != {self._seed})"
-            )
-        # Use Python's setstate to restore the exact internal state
-        self._rng.setstate(state.internal_state)
-        self._logger.debug(f"RNG stream '{self.name}' restored to saved state")
+        with self._lock:
+            if state.seed != self._seed:
+                raise ValueError(
+                    f"Cannot restore state: seed mismatch ({state.seed} != {self._seed})"
+                )
+            # Use Python's setstate to restore the exact internal state
+            self._rng.setstate(state.internal_state)
+            self._logger.debug(f"RNG stream '{self.name}' restored to saved state")
 
     def reset(self):
         """Reset the stream to its initial state."""
-        self._rng = random.Random(self._seed)
-        self._logger.debug(f"RNG stream '{self.name}' reset")
+        with self._lock:
+            self._rng = random.Random(self._seed)
+            self._logger.debug(f"RNG stream '{self.name}' reset")
 
 
 class DeterministicRNG:
@@ -174,9 +194,13 @@ class DeterministicRNG:
 
     def restore_state(self, states: Dict[str, RNGState]):
         """Restore all streams from state snapshots."""
-        for name, state in states.items():
-            stream = self._streams.get(name)
-            if stream:
+        with self._lock:
+            for name, state in states.items():
+                stream = self._streams.get(name)
+                if stream is None:
+                    # Create a new stream with the correct seed to accept this state
+                    stream = RNGStream(name, state.seed)
+                    self._streams[name] = stream
                 stream.restore_state(state)
 
     def reset_all(self):

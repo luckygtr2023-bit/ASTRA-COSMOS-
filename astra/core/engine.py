@@ -13,7 +13,6 @@ from astra.core.threading import (
     SimulationThreadRegistry,
     AuthorityContext,
     get_simulation_thread_registry,
-    SimulationThread,
 )
 from astra.core.time import SimulationClock, TimeMode
 from astra.core.events import EventBus, Event, EventPriority
@@ -80,7 +79,7 @@ class Engine:
         self._services = ServiceRegistry()
 
         # Threading
-        self._sim_thread = SimulationThread("ASTRA_Simulation")
+        self._owns_thread_registration = False
         self._running = False
         self._start_time = 0.0
 
@@ -109,6 +108,22 @@ class Engine:
                 raise AstraError(f"Cannot initialize from state: {self._state.value}")
 
             try:
+                # Register this thread as the simulation thread
+                registry = get_simulation_thread_registry()
+                thread_id = threading.current_thread().ident
+                if thread_id is None:
+                    raise AstraError("Cannot determine thread identity during initialize")
+                if registry.is_registered() and not registry.is_simulation_thread(thread_id):
+                    raise AuthorityError(
+                        "Engine.initialize called from a thread that is not the "
+                        "registered simulation thread",
+                        operation="engine.initialize",
+                        context={"current_thread_id": thread_id,
+                                 "registered_thread_id": registry.get_simulation_thread_id()}
+                    )
+                registry.register_simulation_thread(thread_id)
+                self._owns_thread_registration = True
+
                 # Perform any additional initialization
                 self._logger.info("Initializing ASTRA engine...")
 
@@ -181,46 +196,47 @@ class Engine:
             if self._state not in (EngineState.RUNNING, EngineState.PAUSED):
                 raise AstraError(f"Cannot step from state: {self._state.value}")
 
-            current_tick = self._clock.advance()
-            self._total_ticks += 1
+        current_tick = self._clock.advance()
+        self._total_ticks += 1
 
-            # Update scene tick
-            self._scene.set_tick(current_tick)
+        # Update scene tick
+        self._scene.set_tick(current_tick)
 
-            # Execute pending commands
+        # Execute pending commands
+        with AuthorityContext("engine.step"):
             results = self._command_dispatcher.execute_pending(current_tick)
 
-            # Check for failures
-            for cmd, result, error in results:
-                if error:
-                    should_continue = self._recovery.record_failure(
-                        failure_type="command_error",
-                        operation=cmd.name,
-                        tick=current_tick,
-                        message=error,
-                    )
-                    if not should_continue:
-                        self._state = EngineState.ERROR
-                        raise AstraError(f"Command failed: {cmd.name}: {error}")
-                else:
-                    self._recovery.record_success(cmd.name, current_tick)
+        # Check for failures
+        for cmd, result, error in results:
+            if error:
+                should_continue = self._recovery.record_failure(
+                    failure_type="command_error",
+                    operation=cmd.name,
+                    tick=current_tick,
+                    message=error,
+                )
+                if not should_continue:
+                    self._state = EngineState.ERROR
+                    raise AstraError(f"Command failed: {cmd.name}: {error}")
+            else:
+                self._recovery.record_success(cmd.name, current_tick)
 
-            # Update resources
-            self._resources.tick()
+        # Update resources
+        self._resources.tick()
 
-            # Calculate FPS
-            now = time_module.time()
-            if self._last_frame_time > 0:
-                delta = now - self._last_frame_time
-                if delta > 0:
-                    fps = 1.0 / delta
-                    self._fps_history.append(fps)
-                    if len(self._fps_history) > 60:
-                        self._fps_history.pop(0)
+        # Calculate FPS
+        now = time_module.time()
+        if self._last_frame_time > 0:
+            delta = now - self._last_frame_time
+            if delta > 0:
+                fps = 1.0 / delta
+                self._fps_history.append(fps)
+                if len(self._fps_history) > 60:
+                    self._fps_history.pop(0)
 
-            self._last_frame_time = now
+        self._last_frame_time = now
 
-            return current_tick
+        return current_tick
 
     def run_loop(self, max_ticks: Optional[int] = None):
         """Run the simulation loop."""
@@ -241,7 +257,8 @@ class Engine:
             self._state = EngineState.ERROR
             raise
         finally:
-            if self._running:
+            self._running = False
+            if self._state in (EngineState.RUNNING, EngineState.PAUSED):
                 self.stop()
 
     def save(self, name: str) -> str:

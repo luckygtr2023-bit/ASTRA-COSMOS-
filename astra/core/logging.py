@@ -1,6 +1,7 @@
 """ASTRA Core logging infrastructure."""
 
 import logging
+import threading
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
@@ -64,13 +65,15 @@ class AstraLogger:
 
 # Global logger registry
 _loggers: Dict[str, AstraLogger] = {}
+_loggers_lock = threading.Lock()
 
 
 def get_logger(name: str, level: LogLevel = LogLevel.INFO) -> AstraLogger:
     """Get or create a logger for the given component."""
-    if name not in _loggers:
-        _loggers[name] = AstraLogger(name, level)
-    return _loggers[name]
+    with _loggers_lock:
+        if name not in _loggers:
+            _loggers[name] = AstraLogger(name, level)
+        return _loggers[name]
 
 
 def set_global_level(level: LogLevel):
