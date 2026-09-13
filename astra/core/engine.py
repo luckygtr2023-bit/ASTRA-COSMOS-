@@ -9,7 +9,11 @@ import time as time_module
 from astra.core.logging import get_logger, LogLevel
 from astra.core.config import Config
 from astra.core.exceptions import AstraError, AuthorityError
-from astra.core.threading import SimulationThread, AuthorityContext
+from astra.core.threading import (
+    SimulationThreadRegistry,
+    AuthorityContext,
+    get_simulation_thread_registry,
+)
 from astra.core.time import SimulationClock, TimeMode
 from astra.core.events import EventBus, Event, EventPriority
 from astra.core.rng import DeterministicRNG

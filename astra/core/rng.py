@@ -3,7 +3,7 @@
 import random
 import threading
 from dataclasses import dataclass, field
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, List, Tuple, Any
 from copy import deepcopy
 
 from astra.core.logging import get_logger
@@ -11,89 +11,111 @@ from astra.core.logging import get_logger
 
 @dataclass
 class RNGState:
-    """Snapshot of RNG state for deterministic replay."""
-
+    """Snapshot of RNG state for deterministic replay.
+    
+    Uses Python's native getstate()/setstate() mechanism for reliable
+    state capture and restoration across all RNG methods.
+    """
+    
     seed: int
-    position: int
-    values_consumed: int
+    internal_state: Any  # The opaque state tuple from random.Random.getstate()
 
 
 class RNGStream:
-    """Isolated deterministic random number stream."""
+    """Isolated deterministic random number stream.
+    
+    Uses Python's random.Random with explicit state management via
+    getstate()/setstate() for reliable snapshot/restore regardless
+    of which methods (random, randint, choice, etc.) are called.
+    """
 
     def __init__(self, name: str, seed: int):
         self.name = name
         self._seed = seed
         self._rng = random.Random(seed)
-        self._values_consumed = 0
         self._lock = threading.Lock()
         self._logger = get_logger(f"rng.{name}")
 
     def next_int(self, min_val: int = 0, max_val: int = 2**31 - 1) -> int:
         """Generate a random integer in [min_val, max_val]."""
         with self._lock:
-            value = self._rng.randint(min_val, max_val)
-            self._values_consumed += 1
-            return value
+            return self._rng.randint(min_val, max_val)
 
     def next_float(self) -> float:
         """Generate a random float in [0.0, 1.0)."""
         with self._lock:
-            value = self._rng.random()
-            self._values_consumed += 1
-            return value
+            return self._rng.random()
 
     def next_gauss(self, mu: float = 0.0, sigma: float = 1.0) -> float:
         """Generate a Gaussian random value."""
         with self._lock:
-            value = self._rng.gauss(mu, sigma)
-            self._values_consumed += 1
-            return value
+            return self._rng.gauss(mu, sigma)
 
     def choice(self, seq: list):
         """Choose a random element from a sequence."""
         with self._lock:
-            value = self._rng.choice(seq)
-            self._values_consumed += 1
-            return value
+            return self._rng.choice(seq)
 
     def shuffle(self, seq: list) -> list:
         """Shuffle a sequence (returns a new shuffled list)."""
         with self._lock:
             result = seq.copy()
             self._rng.shuffle(result)
-            self._values_consumed += 1
             return result
 
+    def randint(self, a: int, b: int) -> int:
+        """Generate a random integer between a and b (inclusive)."""
+        with self._lock:
+            return self._rng.randint(a, b)
+
+    def randrange(self, start: int, stop: int = None, step: int = 1) -> int:
+        """Generate a random integer from range(start, stop[, step])."""
+        with self._lock:
+            if stop is None:
+                return self._rng.randrange(start)
+            return self._rng.randrange(start, stop, step)
+
+    def uniform(self, a: float, b: float) -> float:
+        """Generate a random float between a and b."""
+        with self._lock:
+            return self._rng.uniform(a, b)
+
+    def getrandbits(self, k: int) -> int:
+        """Generate a random integer with k random bits."""
+        with self._lock:
+            return self._rng.getrandbits(k)
+
     def get_state(self) -> RNGState:
-        """Get current state snapshot."""
-        # Get the internal state tuple
+        """Get current state snapshot using Python's native state mechanism.
+        
+        This captures the exact internal state of the PRNG, ensuring that
+        restore_state() will reproduce identical sequences regardless of
+        which methods were used to consume state.
+        """
+        # Get the full internal state tuple from Python's random module
         internal_state = self._rng.getstate()
-        # Position is the second element of the state tuple
-        position = internal_state[1] if len(internal_state) > 1 else 0
         return RNGState(
             seed=self._seed,
-            position=position,
-            values_consumed=self._values_consumed,
+            internal_state=internal_state,
         )
 
     def restore_state(self, state: RNGState):
-        """Restore from a state snapshot."""
+        """Restore from a state snapshot using Python's native state mechanism.
+        
+        This restores the exact internal state, ensuring subsequent calls
+        produce identical results to the original execution.
+        """
         if state.seed != self._seed:
             raise ValueError(
                 f"Cannot restore state: seed mismatch ({state.seed} != {self._seed})"
             )
-        # Re-seed and advance to the saved position
-        self._rng = random.Random(self._seed)
-        # Advance by consuming values
-        for _ in range(state.values_consumed):
-            self._rng.random()
-        self._values_consumed = state.values_consumed
+        # Use Python's setstate to restore the exact internal state
+        self._rng.setstate(state.internal_state)
+        self._logger.debug(f"RNG stream '{self.name}' restored to saved state")
 
     def reset(self):
         """Reset the stream to its initial state."""
         self._rng = random.Random(self._seed)
-        self._values_consumed = 0
         self._logger.debug(f"RNG stream '{self.name}' reset")
 
 

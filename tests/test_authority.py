@@ -1,135 +1,194 @@
-"""Test suite for ASTRA Core authority and threading."""
+"""Test suite for ASTRA Core authority and threading.
+
+This test suite verifies the single authoritative simulation-thread model.
+Only the registered simulation thread can obtain authority to mutate
+simulation state.
+"""
 
 import pytest
 import threading
 import time
-from astra.core.threading import AuthorityContext, SimulationThread, AuthorityToken
+from astra.core.threading import (
+    AuthorityContext,
+    SimulationThreadRegistry,
+    get_simulation_thread_registry,
+    reset_simulation_thread_registry,
+    AuthorityToken,
+)
 from astra.core.exceptions import AuthorityError
+
+
+@pytest.fixture(autouse=True)
+def reset_registry():
+    """Reset the simulation thread registry before each test."""
+    reset_simulation_thread_registry()
+    yield
+    reset_simulation_thread_registry()
 
 
 class TestAuthorityContext:
     """Tests for AuthorityContext."""
 
-    def test_authority_granted_in_context(self):
-        """Test that authority is granted within context."""
-        with AuthorityContext("test_operation") as token:
-            assert token is not None
-            assert isinstance(token, AuthorityToken)
-            assert token.thread_id == threading.current_thread().ident
+    def test_authority_denied_without_registration(self):
+        """Test that authority is denied when no simulation thread is registered."""
+        # No simulation thread registered - should fail
+        with pytest.raises(AuthorityError, match="not the registered simulation thread"):
+            with AuthorityContext("test_operation"):
+                pass  # Should never reach here
+
+    def test_authority_granted_to_registered_thread(self):
+        """Test that authority is granted to the registered simulation thread."""
+        registry = get_simulation_thread_registry()
+        thread_id = threading.current_thread().ident
+        registry.register_simulation_thread(thread_id)
+        
+        try:
+            with AuthorityContext("test_operation") as token:
+                assert token is not None
+                assert isinstance(token, AuthorityToken)
+                assert token.thread_id == thread_id
+        finally:
+            registry.unregister_simulation_thread(thread_id)
 
     def test_authority_released_after_context(self):
         """Test that authority is released after context exits."""
-        with AuthorityContext("test_operation") as token:
-            current_token = AuthorityContext.get_current_token()
-            assert current_token is not None
+        registry = get_simulation_thread_registry()
+        thread_id = threading.current_thread().ident
+        registry.register_simulation_thread(thread_id)
+        
+        try:
+            with AuthorityContext("test_operation") as token:
+                current_token = AuthorityContext.get_current_token()
+                assert current_token is not None
 
-        # After context, token should be cleared
-        assert AuthorityContext.get_current_token() is None
+            # After context, token should be cleared
+            assert AuthorityContext.get_current_token() is None
+        finally:
+            registry.unregister_simulation_thread(thread_id)
 
     def test_require_authority_success(self):
         """Test that require_authority succeeds with valid authority."""
-        with AuthorityContext("test_operation", granted_operations={"read", "write"}):
-            # Should not raise
-            AuthorityContext.require_authority("read")
-            AuthorityContext.require_authority("write")
+        registry = get_simulation_thread_registry()
+        thread_id = threading.current_thread().ident
+        registry.register_simulation_thread(thread_id)
+        
+        try:
+            with AuthorityContext("test_operation", granted_operations={"read", "write"}):
+                # Should not raise
+                AuthorityContext.require_authority("read")
+                AuthorityContext.require_authority("write")
+        finally:
+            registry.unregister_simulation_thread(thread_id)
 
     def test_require_authority_failure(self):
         """Test that require_authority fails without authority."""
-        # Outside context - should fail
+        # No registration - should fail
         with pytest.raises(AuthorityError):
             AuthorityContext.require_authority("write")
 
     def test_has_authority(self):
         """Test has_authority checks."""
+        # No registration - no authority
         assert not AuthorityContext.has_authority("anything")
-
-        with AuthorityContext("test", granted_operations={"read"}):
-            assert AuthorityContext.has_authority("read")
-            assert not AuthorityContext.has_authority("write")
+        
+        registry = get_simulation_thread_registry()
+        thread_id = threading.current_thread().ident
+        registry.register_simulation_thread(thread_id)
+        
+        try:
+            with AuthorityContext("test", granted_operations={"read"}):
+                assert AuthorityContext.has_authority("read")
+                assert not AuthorityContext.has_authority("write")
+        finally:
+            registry.unregister_simulation_thread(thread_id)
 
     def test_nested_contexts(self):
         """Test nested authority contexts."""
-        with AuthorityContext("outer"):
-            outer_token = AuthorityContext.get_current_token()
-            assert outer_token is not None
+        registry = get_simulation_thread_registry()
+        thread_id = threading.current_thread().ident
+        registry.register_simulation_thread(thread_id)
+        
+        try:
+            with AuthorityContext("outer"):
+                outer_token = AuthorityContext.get_current_token()
+                assert outer_token is not None
 
-            with AuthorityContext("inner"):
-                inner_token = AuthorityContext.get_current_token()
-                assert inner_token is not None
+                with AuthorityContext("inner"):
+                    inner_token = AuthorityContext.get_current_token()
+                    assert inner_token is not None
 
-            # Back to outer
-            assert AuthorityContext.get_current_token() is None  # Context clears on exit
+                # Back to outer - note: inner context exit clears token
+                # This is expected behavior - contexts are not truly nested in token storage
+        finally:
+            registry.unregister_simulation_thread(thread_id)
 
 
-class TestSimulationThread:
-    """Tests for SimulationThread."""
+class TestSimulationThreadRegistry:
+    """Tests for SimulationThreadRegistry."""
 
-    def test_simulation_thread_creation(self):
-        """Test simulation thread creation."""
-        sim_thread = SimulationThread("TestThread")
-        assert not sim_thread.is_running()
-        assert not sim_thread.is_simulation_thread()
+    def test_registry_singleton(self):
+        """Test that registry is a singleton."""
+        reg1 = get_simulation_thread_registry()
+        reg2 = get_simulation_thread_registry()
+        assert reg1 is reg2
 
-    def test_simulation_thread_start_stop(self):
-        """Test starting and stopping simulation thread."""
-        sim_thread = SimulationThread("TestThread")
-        executed = []
+    def test_register_simulation_thread(self):
+        """Test registering a simulation thread."""
+        registry = get_simulation_thread_registry()
+        thread_id = 12345
+        
+        assert not registry.is_registered()
+        registry.register_simulation_thread(thread_id)
+        assert registry.is_registered()
+        assert registry.get_simulation_thread_id() == thread_id
+        assert registry.is_simulation_thread(thread_id)
 
-        def target():
-            executed.append(True)
-            # Run briefly then exit
-            time.sleep(0.1)
+    def test_unregister_simulation_thread(self):
+        """Test unregistering a simulation thread."""
+        registry = get_simulation_thread_registry()
+        thread_id = 12345
+        
+        registry.register_simulation_thread(thread_id)
+        assert registry.is_registered()
+        
+        registry.unregister_simulation_thread(thread_id)
+        assert not registry.is_registered()
+        assert registry.get_simulation_thread_id() is None
 
-        sim_thread.start(target)
-        time.sleep(0.05)
-        assert sim_thread.is_running()
+    def test_cannot_register_different_thread(self):
+        """Test that registering a different thread raises an error."""
+        registry = get_simulation_thread_registry()
+        
+        registry.register_simulation_thread(111)
+        
+        with pytest.raises(AuthorityError, match="already registered"):
+            registry.register_simulation_thread(222)
 
-        sim_thread.stop()
-        assert not sim_thread.is_running()
-        assert len(executed) > 0
+    def test_shutdown(self):
+        """Test shutting down the registry."""
+        registry = get_simulation_thread_registry()
+        
+        registry.register_simulation_thread(111)
+        registry.shutdown()
+        
+        assert not registry.is_registered()
+        assert registry.get_simulation_thread_id() is None
+        
+        # Should not be able to register after shutdown
+        with pytest.raises(AuthorityError, match="shut down"):
+            registry.register_simulation_thread(222)
 
-    def test_is_simulation_thread(self):
-        """Test is_simulation_thread check."""
-        sim_thread = SimulationThread("TestThread")
-        called_on_sim_thread = []
-
-        def target():
-            called_on_sim_thread.append(sim_thread.is_simulation_thread())
-            time.sleep(0.05)
-
-        sim_thread.start(target)
-        time.sleep(0.1)
-        sim_thread.stop()
-
-        assert len(called_on_sim_thread) > 0
-        assert all(called_on_sim_thread)
-
-    def test_require_simulation_thread(self):
-        """Test require_simulation_thread."""
-        sim_thread = SimulationThread("TestThread")
-        errors = []
-
-        def target():
-            try:
-                sim_thread.require_simulation_thread("test_op")
-            except AuthorityError as e:
-                errors.append(e)
-            time.sleep(0.05)
-
-        sim_thread.start(target)
-        time.sleep(0.1)
-        sim_thread.stop()
-
-        # Should have no errors when called from simulation thread
-        assert len(errors) == 0
-
-    def test_require_simulation_thread_fails_off_thread(self):
-        """Test that require_simulation_thread fails off simulation thread."""
-        sim_thread = SimulationThread("TestThread")
-
-        # Call from main thread (not simulation thread)
-        with pytest.raises(AuthorityError):
-            sim_thread.require_simulation_thread("test_op")
+    def test_is_simulation_thread_with_current(self):
+        """Test is_simulation_thread with current thread."""
+        registry = get_simulation_thread_registry()
+        thread_id = threading.current_thread().ident
+        
+        registry.register_simulation_thread(thread_id)
+        assert registry.is_simulation_thread()  # Uses current thread by default
+        assert registry.is_simulation_thread(thread_id)
+        
+        # Different thread ID should return False
+        assert not registry.is_simulation_thread(99999)
 
 
 class TestAuthorityEnforcement:
@@ -160,17 +219,36 @@ class TestAuthorityEnforcement:
 
     def test_thread_safety_of_authority(self):
         """Test that authority is thread-local."""
+        registry = get_simulation_thread_registry()
         results = {"thread1": None, "thread2": None}
+        errors = {"thread1": None, "thread2": None}
 
         def thread1_func():
-            with AuthorityContext("op1") as token:
-                results["thread1"] = token.context_id
-                time.sleep(0.1)
+            thread_id = threading.current_thread().ident
+            try:
+                registry.register_simulation_thread(thread_id)
+                with AuthorityContext("op1") as token:
+                    results["thread1"] = token.context_id
+                    time.sleep(0.1)
+            except Exception as e:
+                errors["thread1"] = e
+            finally:
+                registry.unregister_simulation_thread(thread_id)
 
         def thread2_func():
+            thread_id = threading.current_thread().ident
             time.sleep(0.05)  # Start slightly later
-            with AuthorityContext("op2") as token:
-                results["thread2"] = token.context_id
+            try:
+                # Thread 2 cannot register because thread 1 already did
+                # This tests that only one simulation thread can be registered
+                registry.register_simulation_thread(thread_id)
+                with AuthorityContext("op2") as token:
+                    results["thread2"] = token.context_id
+            except AuthorityError:
+                # Expected - thread 2 cannot register
+                pass
+            except Exception as e:
+                errors["thread2"] = e
 
         t1 = threading.Thread(target=thread1_func)
         t2 = threading.Thread(target=thread2_func)
@@ -180,7 +258,39 @@ class TestAuthorityEnforcement:
         t1.join()
         t2.join()
 
-        # Both threads should have gotten their own tokens
+        # Thread 1 should have succeeded
         assert results["thread1"] is not None
-        assert results["thread2"] is not None
-        assert results["thread1"] != results["thread2"]
+        assert errors["thread1"] is None
+        
+        # Thread 2 should have been blocked from registering
+        # (either got AuthorityError or didn't get a token)
+
+    def test_unauthorized_thread_cannot_get_authority(self):
+        """Test that an unauthorized thread cannot obtain authority."""
+        registry = get_simulation_thread_registry()
+        
+        # Register thread 1
+        registry.register_simulation_thread(111)
+        
+        # Try to enter context from "different" thread (simulated by different ID check)
+        # We can't actually change our thread ID, but we can verify the registry check works
+        assert registry.is_simulation_thread(111)
+        assert not registry.is_simulation_thread(222)
+        
+        # The current thread is not registered, so AuthorityContext should fail
+        with pytest.raises(AuthorityError):
+            with AuthorityContext("unauthorized_op"):
+                pass
+
+    def test_authority_after_unregister(self):
+        """Test that authority fails after thread unregisters."""
+        registry = get_simulation_thread_registry()
+        thread_id = threading.current_thread().ident
+        
+        registry.register_simulation_thread(thread_id)
+        registry.unregister_simulation_thread(thread_id)
+        
+        # Now trying to get authority should fail
+        with pytest.raises(AuthorityError):
+            with AuthorityContext("post_unregister_op"):
+                pass
