@@ -1,4 +1,3 @@
-```
 # Compiled Python files
 *.pyc
 __pycache__/
@@ -34,10 +33,15 @@ target/
 *.dll
 *.so
 *.a
+*.egg-info/
+astra_core.egg-info/
 
 # Dependencies
 node_modules/
 .mypy_cache/
 .pytest_cache/
 .gradle/
-```
+
+# Snapshots
+astra_snapshots/
+./astra_snapshots/

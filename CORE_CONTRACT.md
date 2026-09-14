@@ -1,4 +1,4 @@
-# ASTRA CORE Contract v0.1.2
+# ASTRA CORE Contract v0.1.1
 
 This document describes the ACTUAL implemented ASTRA CORE API.
 
@@ -304,4 +304,4 @@ registry.unregister_simulation_thread(thread_id)
 ## Version Information
 
 - Schema version: 1.0.0
-- Core version: 0.1.2
+- Core version: 0.1.1

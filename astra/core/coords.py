@@ -7,6 +7,7 @@ import threading
 from astra.core.ids import FrameId
 from astra.core.logging import get_logger
 from astra.core.exceptions import FrameError, AuthorityError
+from astra.core.threading import AuthorityContext
 
 
 @dataclass
@@ -117,6 +118,9 @@ class OriginRebaser:
         Returns:
             RebaseResult with success/failure information
         """
+        if authority_check:
+            AuthorityContext.require_authority("origin_rebase")
+
         with self._lock:
             request = self._pending_request
             if request is None:
@@ -131,15 +135,18 @@ class OriginRebaser:
             old_origin = self._current_origin
             new_origin = request.new_origin
 
-            # Calculate offset
+            # Calculate offset: new_origin - old_origin
             offset = tuple(n - o for n, o in zip(new_origin, old_origin))
 
-            # Update all frames to preserve relative positions
+            # Update all frames to preserve physical positions.
+            # Physical position = old_origin + frame.origin (in old representation)
+            # After rebase, new representation should be: frame_new = frame_old - offset
+            # So that physical position preserved: new_origin + frame_new = old_origin + frame_old
             affected_frames = []
             for frame_id, frame in frames.items():
                 if request.frame_id is None or frame_id == request.frame_id:
-                    # Adjust frame origin to maintain physical positions
-                    frame.origin = tuple(o + off for o, off in zip(frame.origin, offset))
+                    # Correct logic: subtract offset to preserve physical position
+                    frame.origin = tuple(o - off for o, off in zip(frame.origin, offset))
                     affected_frames.append(frame_id)
 
             # Update current origin
@@ -168,8 +175,10 @@ class OriginRebaser:
         with self._lock:
             return self._current_origin
 
-    def set_origin(self, origin: Tuple[float, float, float]):
+    def set_origin(self, origin: Tuple[float, float, float], require_authority: bool = False):
         """Set the origin directly (use with caution)."""
+        if require_authority:
+            AuthorityContext.require_authority("origin_rebase.set_origin")
         with self._lock:
             self._current_origin = origin
 
@@ -192,8 +201,10 @@ class FrameRegistry:
         self._lock = threading.RLock()
         self._logger = get_logger("frame_registry")
 
-    def register(self, frame: CoordinateFrame):
+    def register(self, frame: CoordinateFrame, require_authority: bool = False):
         """Register a coordinate frame."""
+        if require_authority:
+            AuthorityContext.require_authority("frame.register")
         with self._lock:
             if frame.id.value in self._frames:
                 raise FrameError(
@@ -210,8 +221,10 @@ class FrameRegistry:
 
             self._logger.debug(f"Registered frame: {frame.name}")
 
-    def unregister(self, frame_id: str):
+    def unregister(self, frame_id: str, require_authority: bool = False):
         """Unregister a coordinate frame."""
+        if require_authority:
+            AuthorityContext.require_authority("frame.unregister")
         with self._lock:
             if frame_id not in self._frames:
                 raise FrameError(
@@ -283,8 +296,10 @@ class FrameRegistry:
 
             return local_point
 
-    def clear(self):
+    def clear(self, require_authority: bool = False):
         """Clear all frames."""
+        if require_authority:
+            AuthorityContext.require_authority("frame.clear")
         with self._lock:
             self._frames.clear()
             self._logger.debug("Cleared all frames")

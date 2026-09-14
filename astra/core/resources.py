@@ -7,6 +7,7 @@ import weakref
 
 from astra.core.logging import get_logger
 from astra.core.exceptions import ResourceError
+from astra.core.threading import AuthorityContext, get_simulation_thread_registry
 
 
 T = TypeVar("T")
@@ -97,14 +98,26 @@ class ResourceManager:
         self._logger = get_logger("resource_manager")
         self._cleanup_interval = 100
         self._ticks_since_cleanup = 0
+        self._registry = get_simulation_thread_registry()
+
+    def _require_authority_if_needed(self, operation: str):
+        if self._registry.is_registered():
+            AuthorityContext.require_authority(operation)
 
     def register(
         self,
         resource: Any,
         name: str = "",
         metadata: Optional[Dict[str, Any]] = None,
+        require_authority: bool = False,
     ) -> ResourceHandle:
         """Register a new resource and return a handle."""
+        if require_authority:
+            AuthorityContext.require_authority("resource.register")
+        else:
+            # Only enforce when explicitly requested or when registry active and we want strict mode
+            # For backward compat, allow without authority if not explicitly required
+            pass
         with self._lock:
             if len(self._resources) >= self._max_handles:
                 raise ResourceError(

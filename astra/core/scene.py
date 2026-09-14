@@ -7,6 +7,7 @@ import threading
 from astra.core.entities import EntityManager, Entity, Query
 from astra.core.coords import FrameRegistry, CoordinateFrame, OriginRebaser
 from astra.core.logging import get_logger
+from astra.core.threading import AuthorityContext
 
 
 @dataclass
@@ -55,8 +56,10 @@ class Scene:
         """Query entities in the scene."""
         return self.entity_manager.query(query)
 
-    def register_frame(self, frame: CoordinateFrame):
+    def register_frame(self, frame: CoordinateFrame, require_authority: bool = False):
         """Register a coordinate frame."""
+        if require_authority:
+            AuthorityContext.require_authority("scene.register_frame")
         self.frame_registry.register(frame)
 
     def get_frame(self, frame_id: str) -> Optional[CoordinateFrame]:
@@ -75,10 +78,13 @@ class Scene:
             tick=self._current_tick,
         )
 
-    def execute_origin_rebase(self) -> Any:
+    def execute_origin_rebase(self, require_authority: bool = True) -> Any:
         """Execute a pending origin rebase."""
+        if require_authority:
+            AuthorityContext.require_authority("scene.execute_origin_rebase")
         frames = self.frame_registry.get_all_frames()
-        return self.origin_rebaser.execute_rebase(frames)
+        # Pass authority_check=False because we already checked at scene level
+        return self.origin_rebaser.execute_rebase(frames, authority_check=False)
 
     def get_state(self) -> SceneState:
         """Get current scene state."""
