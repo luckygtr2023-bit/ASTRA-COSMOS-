@@ -101,8 +101,18 @@ class ResourceManager:
         self._registry = get_simulation_thread_registry()
 
     def _require_authority_if_needed(self, operation: str):
-        if self._registry.is_registered():
-            AuthorityContext.require_authority(operation)
+        # Enforce simulation thread identity if registry is active, similar to EntityManager
+        if self._registry.is_registered() and not self._registry.is_simulation_thread():
+            from astra.core.exceptions import AuthorityError
+            import threading
+            raise AuthorityError(
+                f"Operation '{operation}' requires simulation thread",
+                operation=operation,
+                context={
+                    "current_thread_id": threading.current_thread().ident,
+                    "registered_thread_id": self._registry.get_simulation_thread_id(),
+                },
+            )
 
     def register(
         self,
@@ -115,9 +125,7 @@ class ResourceManager:
         if require_authority:
             AuthorityContext.require_authority("resource.register")
         else:
-            # Only enforce when explicitly requested or when registry active and we want strict mode
-            # For backward compat, allow without authority if not explicitly required
-            pass
+            self._require_authority_if_needed("resource.register")
         with self._lock:
             if len(self._resources) >= self._max_handles:
                 raise ResourceError(
@@ -141,8 +149,12 @@ class ResourceManager:
 
             return ResourceHandle(resource_id, self)
 
-    def unregister(self, resource_id: str, force: bool = False):
+    def unregister(self, resource_id: str, force: bool = False, require_authority: bool = False):
         """Unregister a resource."""
+        if require_authority:
+            AuthorityContext.require_authority("resource.unregister")
+        else:
+            self._require_authority_if_needed("resource.unregister")
         with self._lock:
             if resource_id not in self._resources:
                 raise ResourceError(
@@ -266,8 +278,14 @@ class ResourceManager:
                 "max_handles": self._max_handles,
             }
 
-    def clear(self):
+    def clear(self, require_authority: bool = False):
         """Clear all resources (force unregister)."""
+        if require_authority:
+            AuthorityContext.require_authority("resource.clear")
+        else:
+            # Allow clear during engine reset even without explicit flag if on sim thread
+            # Only enforce when registry active and not sim thread
+            self._require_authority_if_needed("resource.clear")
         with self._lock:
             self._resources.clear()
             self._actual_resources.clear()

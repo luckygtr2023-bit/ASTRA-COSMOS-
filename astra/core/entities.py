@@ -249,10 +249,7 @@ class EntityManager:
         if require_authority:
             AuthorityContext.require_authority("entity.clear")
         else:
-            # Allow clear without authority if no registry, but enforce if registered
-            # For engine reset, we need to allow clear even without authority, so only enforce when explicitly requested
-            if require_authority:
-                self._require_authority_if_needed("entity.clear")
+            self._require_authority_if_needed("entity.clear")
         with self._lock:
             self._entities.clear()
             self._next_sequence = 0

@@ -146,7 +146,7 @@ class PersistenceManager:
                 if os.path.exists(temp_path):
                     try:
                         os.remove(temp_path)
-                    except:
+                    except OSError:
                         pass
                 raise PersistenceError(
                     f"Failed to save snapshot: {e}",

@@ -175,7 +175,11 @@ class Matrix3:
         return all(_is_close(a, b, atol=1e-9, rtol=1e-9) for a, b in zip(self.to_tuple(), other.to_tuple()))
 
     def __hash__(self):
-        return hash(self.to_tuple())
+        # Hash must be consistent with tolerant equality.
+        # Round to 9 decimal places (atol) to ensure values within tolerance hash same.
+        # This is a best-effort quantization; exact hash/equality contract cannot be
+        # perfectly satisfied with tolerance, but rounding reduces violations.
+        return hash(tuple(round(x, 9) for x in self.to_tuple()))
 
 
 @dataclass(frozen=True)
@@ -325,4 +329,4 @@ class Matrix4:
         return all(_is_close(a, b, atol=1e-9, rtol=1e-9) for a, b in zip(self.to_tuple(), other.to_tuple()))
 
     def __hash__(self):
-        return hash(self.to_tuple())
+        return hash(tuple(round(x, 9) for x in self.to_tuple()))

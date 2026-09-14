@@ -7,7 +7,7 @@ import threading
 from astra.core.ids import FrameId
 from astra.core.logging import get_logger
 from astra.core.exceptions import FrameError, AuthorityError
-from astra.core.threading import AuthorityContext
+from astra.core.threading import AuthorityContext, get_simulation_thread_registry
 
 
 @dataclass
@@ -79,6 +79,18 @@ class OriginRebaser:
         self._rebase_history: List[RebaseResult] = []
         self._lock = threading.Lock()
         self._logger = get_logger("origin_rebaser")
+        self._registry = get_simulation_thread_registry()
+
+    def _require_authority_if_needed(self, operation: str):
+        if self._registry.is_registered() and not self._registry.is_simulation_thread():
+            raise AuthorityError(
+                f"Operation '{operation}' requires simulation thread",
+                operation=operation,
+                context={
+                    "current_thread_id": threading.current_thread().ident,
+                    "registered_thread_id": self._registry.get_simulation_thread_id(),
+                },
+            )
 
     def request_rebase(
         self,
@@ -179,6 +191,8 @@ class OriginRebaser:
         """Set the origin directly (use with caution)."""
         if require_authority:
             AuthorityContext.require_authority("origin_rebase.set_origin")
+        else:
+            self._require_authority_if_needed("origin_rebase.set_origin")
         with self._lock:
             self._current_origin = origin
 
@@ -200,11 +214,25 @@ class FrameRegistry:
         self._frames: Dict[str, CoordinateFrame] = {}
         self._lock = threading.RLock()
         self._logger = get_logger("frame_registry")
+        self._registry = get_simulation_thread_registry()
+
+    def _require_authority_if_needed(self, operation: str):
+        if self._registry.is_registered() and not self._registry.is_simulation_thread():
+            raise AuthorityError(
+                f"Operation '{operation}' requires simulation thread",
+                operation=operation,
+                context={
+                    "current_thread_id": threading.current_thread().ident,
+                    "registered_thread_id": self._registry.get_simulation_thread_id(),
+                },
+            )
 
     def register(self, frame: CoordinateFrame, require_authority: bool = False):
         """Register a coordinate frame."""
         if require_authority:
             AuthorityContext.require_authority("frame.register")
+        else:
+            self._require_authority_if_needed("frame.register")
         with self._lock:
             if frame.id.value in self._frames:
                 raise FrameError(
@@ -225,6 +253,8 @@ class FrameRegistry:
         """Unregister a coordinate frame."""
         if require_authority:
             AuthorityContext.require_authority("frame.unregister")
+        else:
+            self._require_authority_if_needed("frame.unregister")
         with self._lock:
             if frame_id not in self._frames:
                 raise FrameError(
@@ -300,6 +330,8 @@ class FrameRegistry:
         """Clear all frames."""
         if require_authority:
             AuthorityContext.require_authority("frame.clear")
+        else:
+            self._require_authority_if_needed("frame.clear")
         with self._lock:
             self._frames.clear()
             self._logger.debug("Cleared all frames")
