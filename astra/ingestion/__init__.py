@@ -37,6 +37,7 @@ from astra.ingestion.schema import (
     COLUMN_NAMES,
     DERIVED_COLUMNS,
     GAIA_DR3_COLUMNS,
+    GAIA_DR3_SOURCE_METADATA,
     GaiaColumn,
     ROW_DATA_CLASSIFICATION,
 )
@@ -60,7 +61,9 @@ from astra.ingestion.database import (
     IngestionManifest,
     connect,
     ensure_schema,
+    get_source,
     insert_batch,
+    register_source,
 )
 from astra.ingestion.transport import (
     TAP_BASE_URL,
@@ -79,7 +82,7 @@ __all__ = [
     "IngestionRunError", "TransportError",
     # schema
     "GaiaColumn", "GAIA_DR3_COLUMNS", "COLUMN_NAMES", "DERIVED_COLUMNS",
-    "ROW_DATA_CLASSIFICATION",
+    "ROW_DATA_CLASSIFICATION", "GAIA_DR3_SOURCE_METADATA",
     # query
     "GaiaQuerySpec", "build_adql", "query_hash", "MIN_PARALLAX_MAS_2000LY",
     "SELECTION_RADIUS_LY", "SELECTION_RADIUS_PC", "LY_PER_PARSEC",
@@ -88,6 +91,7 @@ __all__ = [
     "GaiaRecord", "validate_row",
     # database
     "connect", "ensure_schema", "insert_batch", "IngestionManifest", "INSERT_SQL",
+    "register_source", "get_source",
     "STATUS_RUNNING", "STATUS_COMPLETED", "STATUS_FAILED",
     # transport
     "TAP_BASE_URL", "TapTransport", "UrllibTapTransport", "UwsAsyncClient",

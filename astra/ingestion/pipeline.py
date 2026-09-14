@@ -43,6 +43,7 @@ from astra.ingestion.database import (
     connect,
     ensure_schema,
     insert_batch,
+    register_source,
 )
 from astra.ingestion.exceptions import (
     IngestionContractError,
@@ -50,7 +51,7 @@ from astra.ingestion.exceptions import (
     MalformedRowError,
 )
 from astra.ingestion.query import GaiaQuerySpec, build_adql, query_hash
-from astra.ingestion.schema import COLUMN_NAMES
+from astra.ingestion.schema import COLUMN_NAMES, GAIA_DR3_SOURCE_METADATA
 from astra.ingestion.transport import TAP_BASE_URL, TapTransport, UrllibTapTransport, UwsAsyncClient
 from astra.ingestion.validate import validate_row
 
@@ -126,6 +127,9 @@ class GaiaDR3IngestionPipeline:
         conn = connect(self.db_path)
         try:
             ensure_schema(conn)
+            # Idempotent catalog-source metadata registration (endpoint,
+            # protocol, ICRS frame, J2016.0 epoch, provenance defaults).
+            register_source(conn, GAIA_DR3_SOURCE_METADATA)
             manifest = IngestionManifest.begin(
                 conn,
                 self._new_run_id(conn, adql_hash),

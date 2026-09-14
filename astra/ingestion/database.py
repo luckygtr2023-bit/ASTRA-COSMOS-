@@ -39,6 +39,7 @@ from astra.ingestion.schema import (
     COLUMN_NAMES,
     DDL_INDEXES,
     DDL_MANIFEST,
+    DDL_SOURCES_REGISTRY,
     DDL_STARS_ASTROMETRY,
 )
 from astra.ingestion.validate import GaiaRecord
@@ -76,8 +77,71 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     """Create tables and supporting indexes if absent (idempotent)."""
     conn.execute(DDL_STARS_ASTROMETRY)
     conn.execute(DDL_MANIFEST)
+    conn.execute(DDL_SOURCES_REGISTRY)
     for ddl in DDL_INDEXES:
         conn.execute(ddl)
+
+
+def register_source(
+    conn: sqlite3.Connection,
+    metadata: dict,
+    *,
+    registered_utc: Optional[str] = None,
+) -> None:
+    """Register (or idempotently refresh) catalog-source metadata.
+
+    ``sources_registry`` records HOW a catalog's data was obtained: endpoint,
+    protocol, reference frame, reference epoch, and the provenance defaults
+    that apply to its columns. This is pipeline-owned configuration, so
+    re-registration UPDATES the row (last-writer-wins on our own metadata) —
+    it never touches ``stars_astrometry`` measurements.
+    """
+    required = (
+        "source_name", "title", "endpoint_url", "protocol",
+        "reference_frame", "ref_epoch", "data_classification_default",
+        "derived_columns",
+    )
+    missing = [key for key in required if key not in metadata]
+    if missing:
+        raise IngestionError(
+            "source metadata is missing required keys",
+            {"missing": missing},
+        )
+    now = registered_utc or _utc_now()
+    conn.execute(
+        "INSERT INTO sources_registry "
+        "(source_name, title, endpoint_url, protocol, reference_frame, ref_epoch, "
+        "data_classification_default, derived_columns, first_registered_utc, "
+        "updated_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(source_name) DO UPDATE SET "
+        "title = excluded.title, endpoint_url = excluded.endpoint_url, "
+        "protocol = excluded.protocol, reference_frame = excluded.reference_frame, "
+        "ref_epoch = excluded.ref_epoch, "
+        "data_classification_default = excluded.data_classification_default, "
+        "derived_columns = excluded.derived_columns, updated_utc = excluded.updated_utc",
+        (
+            metadata["source_name"],
+            metadata["title"],
+            metadata["endpoint_url"],
+            metadata["protocol"],
+            metadata["reference_frame"],
+            float(metadata["ref_epoch"]),
+            metadata["data_classification_default"],
+            json.dumps(list(metadata["derived_columns"])),
+            now,
+            now,
+        ),
+    )
+
+
+def get_source(
+    conn: sqlite3.Connection, source_name: str
+) -> Optional[sqlite3.Row]:
+    """Return the registry row for ``source_name`` or None."""
+    cur = conn.execute(
+        "SELECT * FROM sources_registry WHERE source_name = ?", (source_name,)
+    )
+    return cur.fetchone()
 
 
 def insert_batch(

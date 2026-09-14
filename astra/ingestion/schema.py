@@ -22,6 +22,7 @@ NO DATA IS EMBEDDED HERE
 from dataclasses import dataclass
 
 from astra.celestial.provenance import DataProvenance
+from astra.ingestion.transport import TAP_BASE_URL
 
 
 @dataclass(frozen=True)
@@ -161,3 +162,37 @@ CREATE TABLE IF NOT EXISTS ingestion_manifest (
     updated_utc TEXT NOT NULL
 )
 """
+
+DDL_SOURCES_REGISTRY = """
+CREATE TABLE IF NOT EXISTS sources_registry (
+    source_name TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    endpoint_url TEXT NOT NULL,
+    protocol TEXT NOT NULL,
+    reference_frame TEXT NOT NULL,
+    ref_epoch REAL NOT NULL,
+    data_classification_default TEXT NOT NULL,
+    derived_columns TEXT NOT NULL,
+    first_registered_utc TEXT NOT NULL,
+    updated_utc TEXT NOT NULL
+)
+"""
+
+#: Catalog-source metadata for Gaia DR3, registered into ``sources_registry``
+#: on every ingestion run (idempotently). This records HOW the data was
+#: obtained and under which conventions: the ESA TAP endpoint, the IVOA
+#: protocol, the ICRS reference frame and the J2016.0 reference epoch as
+#: published (coordinates are stored exactly as Gaia publishes them; the
+#: epoch belongs to catalog metadata, never fabricated into rows). The
+#: classification default applies to measurements; the GSP-Phot columns are
+#: flagged DERIVED_DATA via :data:`DERIVED_COLUMNS`.
+GAIA_DR3_SOURCE_METADATA = {
+    "source_name": "gaia_dr3",
+    "title": "ESA Gaia DR3 (gaiadr3.gaia_source)",
+    "endpoint_url": TAP_BASE_URL,
+    "protocol": "IVOA TAP 1.1 / ADQL",
+    "reference_frame": "ICRS",
+    "ref_epoch": 2016.0,
+    "data_classification_default": DataProvenance.REAL_DATA.value,
+    "derived_columns": list(DERIVED_COLUMNS),
+}
