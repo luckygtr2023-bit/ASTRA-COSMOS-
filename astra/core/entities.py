@@ -8,6 +8,7 @@ from copy import deepcopy
 from astra.core.ids import EntityId
 from astra.core.logging import get_logger
 from astra.core.exceptions import EntityError, AuthorityError
+from astra.core.threading import AuthorityContext, get_simulation_thread_registry
 
 
 @dataclass
@@ -136,13 +137,36 @@ class EntityManager:
         self._lock = threading.RLock()
         self._logger = get_logger("entity_manager")
         self._current_tick = 0
+        self._registry = get_simulation_thread_registry()
+
+    def _require_authority_if_needed(self, operation: str):
+        """Require simulation thread identity if a simulation thread is registered.
+        
+        This enforces that only the registered simulation thread may mutate,
+        but does not require an AuthorityContext token, allowing direct
+        creation on the simulation thread outside a token context.
+        """
+        if self._registry.is_registered() and not self._registry.is_simulation_thread():
+            raise AuthorityError(
+                f"Operation '{operation}' requires simulation thread",
+                operation=operation,
+                context={
+                    "current_thread_id": threading.current_thread().ident,
+                    "registered_thread_id": self._registry.get_simulation_thread_id(),
+                },
+            )
 
     def set_current_tick(self, tick: int):
         """Set the current simulation tick."""
         self._current_tick = tick
 
-    def create_entity(self, name: str = "") -> Entity:
+    def create_entity(self, name: str = "", require_authority: bool = False) -> Entity:
         """Create a new entity."""
+        if require_authority:
+            AuthorityContext.require_authority("entity.create")
+        else:
+            # Enforce if registry is active
+            self._require_authority_if_needed("entity.create")
         with self._lock:
             entity_id = EntityId.generate(self._current_tick, self._next_sequence)
             self._next_sequence += 1
@@ -156,8 +180,12 @@ class EntityManager:
             self._logger.debug(f"Created entity: {entity_id.value}")
             return entity
 
-    def destroy_entity(self, entity_id: str):
+    def destroy_entity(self, entity_id: str, require_authority: bool = False):
         """Destroy an entity."""
+        if require_authority:
+            AuthorityContext.require_authority("entity.destroy")
+        else:
+            self._require_authority_if_needed("entity.destroy")
         with self._lock:
             if entity_id not in self._entities:
                 raise EntityError(f"Entity not found: {entity_id}", entity_id, "destroy")
@@ -175,8 +203,12 @@ class EntityManager:
             raise EntityError(f"Entity not found: {entity_id}", entity_id, "get")
         return entity
 
-    def update_entity(self, entity: Entity):
+    def update_entity(self, entity: Entity, require_authority: bool = False):
         """Update an existing entity."""
+        if require_authority:
+            AuthorityContext.require_authority("entity.update")
+        else:
+            self._require_authority_if_needed("entity.update")
         with self._lock:
             if entity.id.value not in self._entities:
                 raise EntityError(
@@ -212,8 +244,12 @@ class EntityManager:
         with self._lock:
             return len(self._entities)
 
-    def clear(self):
+    def clear(self, require_authority: bool = False):
         """Clear all entities."""
+        if require_authority:
+            AuthorityContext.require_authority("entity.clear")
+        else:
+            self._require_authority_if_needed("entity.clear")
         with self._lock:
             self._entities.clear()
             self._next_sequence = 0
@@ -242,7 +278,7 @@ class EntityManager:
             }
 
     def restore_from_snapshot(self, snapshot: Dict[str, Any]):
-        """Restore state from a snapshot."""
+        """Restore state from a snapshot with component preservation."""
         with self._lock:
             self._entities.clear()
             for eid, edata in snapshot.get("entities", {}).items():
@@ -253,11 +289,22 @@ class EntityManager:
                     enabled=edata.get("enabled", True),
                     tick_created=edata.get("tick_created", 0),
                 )
-                # Restore components (basic restoration)
+                # Restore components
                 for cid, cdata in edata.get("components", {}).items():
-                    # Note: This is a simplified restoration
-                    # Full restoration would require component type registry
-                    pass
+                    try:
+                        comp_type = cdata.get("type", "Component")
+                        comp_data = cdata.get("data", {})
+                        # Create base component and restore its dict
+                        comp = Component(id=comp_data.get("id", cid))
+                        # Restore all saved attributes
+                        for k, v in comp_data.items():
+                            try:
+                                setattr(comp, k, v)
+                            except Exception:
+                                pass
+                        entity.components[cid] = comp
+                    except Exception as ce:
+                        self._logger.warning(f"Failed to restore component {cid}: {ce}")
                 self._entities[eid] = entity
 
             self._next_sequence = snapshot.get("next_sequence", 0)

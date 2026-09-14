@@ -16,10 +16,11 @@ from astra.core.threading import (
 )
 from astra.core.time import SimulationClock, TimeMode
 from astra.core.events import EventBus, Event, EventPriority
-from astra.core.rng import DeterministicRNG
+from astra.core.rng import DeterministicRNG, RNGState
 from astra.core.commands import CommandDispatcher, Command
 from astra.core.entities import EntityManager, Entity
 from astra.core.coords import FrameRegistry, CoordinateFrame, OriginRebaser
+from astra.core.ids import FrameId
 from astra.core.scene import Scene
 from astra.core.persistence import PersistenceManager, Snapshot
 from astra.core.resources import ResourceManager
@@ -101,11 +102,75 @@ class Engine:
 
         self._logger.info(f"ASTRA Engine created with config: {self._config.engine_name}")
 
+    def reset(self):
+        """Reset engine to CREATED state for reuse after STOPPED/ERROR."""
+        with self._lock:
+            if self._state not in (EngineState.STOPPED, EngineState.ERROR, EngineState.CREATED):
+                raise AstraError(f"Cannot reset from state: {self._state.value}")
+            # Unregister thread if we own it
+            if self._owns_thread_registration:
+                try:
+                    registry = get_simulation_thread_registry()
+                    tid = threading.current_thread().ident
+                    if tid is not None:
+                        registry.unregister_simulation_thread(tid)
+                except Exception:
+                    pass
+                self._owns_thread_registration = False
+            # Clear subsystems
+            try:
+                self._scene.clear()
+            except Exception:
+                pass
+            self._clock.reset()
+            self._event_bus.clear_history()
+            self._command_dispatcher.clear_pending()
+            self._command_dispatcher.get_history().clear()
+            self._resources.clear()
+            self._recovery.reset()
+            self._recovery.clear_history()
+            self._total_ticks = 0
+            self._fps_history.clear()
+            self._last_frame_time = 0.0
+            self._running = False
+            self._start_time = 0.0
+            self._state = EngineState.CREATED
+            self._logger.info("ASTRA engine reset to CREATED")
+
     def initialize(self):
         """Initialize the engine and transition to READY state."""
         with self._lock:
-            if self._state != EngineState.CREATED:
+            if self._state not in (EngineState.CREATED, EngineState.STOPPED, EngineState.ERROR):
                 raise AstraError(f"Cannot initialize from state: {self._state.value}")
+            # If STOPPED/ERROR, reset first
+            if self._state in (EngineState.STOPPED, EngineState.ERROR):
+                # Perform reset logic inline to avoid deadlock (reset also acquires lock, but RLock allows)
+                if self._owns_thread_registration:
+                    try:
+                        registry = get_simulation_thread_registry()
+                        tid = threading.current_thread().ident
+                        if tid is not None:
+                            registry.unregister_simulation_thread(tid)
+                    except Exception:
+                        pass
+                    self._owns_thread_registration = False
+                try:
+                    self._scene.clear()
+                except Exception:
+                    pass
+                self._clock.reset()
+                self._event_bus.clear_history()
+                self._command_dispatcher.clear_pending()
+                self._command_dispatcher.get_history().clear()
+                self._resources.clear()
+                self._recovery.reset()
+                self._recovery.clear_history()
+                self._total_ticks = 0
+                self._fps_history.clear()
+                self._last_frame_time = 0.0
+                self._running = False
+                self._start_time = 0.0
+                self._state = EngineState.CREATED
 
             try:
                 # Register this thread as the simulation thread
@@ -262,19 +327,49 @@ class Engine:
                 self.stop()
 
     def save(self, name: str) -> str:
-        """Save the current simulation state."""
+        """Save the current simulation state with full deterministic data."""
         with self._lock:
+            # Serialize RNG states using proper to_serializable
+            rng_serialized = {}
+            try:
+                for k, v in self._rng.get_state().items():
+                    rng_serialized[k] = v.to_serializable()
+            except Exception:
+                # Fallback: if any stream fails, store empty but log
+                self._logger.error("Failed to serialize RNG state, storing empty")
+                rng_serialized = {}
+
+            # Serialize commands and events with full data
+            try:
+                cmd_history = [c.to_serializable() for c in self._command_dispatcher.get_history().get_history()]
+            except Exception:
+                cmd_history = []
+
+            try:
+                evt_history = [e.to_serializable() for e in self._event_bus.get_history()[-100:]]
+            except Exception:
+                evt_history = []
+
+            # Include tick_duration and origin for completeness
+            sim_time_data = {
+                "tick": self._clock.get_current_tick(),
+                "time": self._clock.get_simulation_time(),
+                "mode": self._clock.get_mode().value,
+                "tick_duration": self._clock.get_tick_duration(),
+                "is_running": self._clock.is_running(),
+                "is_paused": self._clock.is_paused(),
+            }
+
+            engine_state_data = {
+                "state": self._state.value,
+                "total_ticks": self._total_ticks,
+                "current_origin": self._scene.origin_rebaser.get_current_origin(),
+            }
+
             snapshot = Snapshot(
                 schema_version="1.0.0",
-                engine_state={
-                    "state": self._state.value,
-                    "total_ticks": self._total_ticks,
-                },
-                simulation_time={
-                    "tick": self._clock.get_current_tick(),
-                    "time": self._clock.get_simulation_time(),
-                    "mode": self._clock.get_mode().value,
-                },
+                engine_state=engine_state_data,
+                simulation_time=sim_time_data,
                 entities=self._scene.entity_manager.get_state_snapshot(),
                 frames={
                     fid: {
@@ -285,27 +380,9 @@ class Engine:
                     }
                     for fid, f in self._scene.frame_registry.get_all_frames().items()
                 },
-                rng_state={k: {"seed": v.seed, "consumed": v._values_consumed} 
-                          for k, v in self._rng.get_state().items()},
-                command_history=[
-                    {
-                        "id": c.id.value,
-                        "name": c.name,
-                        "tick": c.tick,
-                        "sequence": c.sequence,
-                        "status": c.status.value,
-                    }
-                    for c in self._command_dispatcher.get_history().get_history()
-                ],
-                event_history=[
-                    {
-                        "id": e.id.value,
-                        "name": e.name,
-                        "tick": e.tick,
-                        "sequence": e.sequence,
-                    }
-                    for e in self._event_bus.get_history()[-100:]  # Last 100 events
-                ],
+                rng_state=rng_serialized,
+                command_history=cmd_history,
+                event_history=evt_history,
                 tick=self._clock.get_current_tick(),
             )
 
@@ -314,7 +391,7 @@ class Engine:
             return path
 
     def load(self, name: str):
-        """Load a simulation state from a snapshot."""
+        """Load a simulation state from a snapshot with full restoration."""
         with self._lock:
             snapshot = self._persistence.load(name)
 
@@ -322,15 +399,94 @@ class Engine:
             engine_data = snapshot.engine_state
             self._total_ticks = engine_data.get("total_ticks", 0)
 
-            # Restore time
+            # Restore time with force to allow backward loads
             time_data = snapshot.simulation_time
-            self._clock.seek(time_data.get("tick", 0))
+            try:
+                target_tick = time_data.get("tick", 0)
+                sim_time = time_data.get("time", float(target_tick) * self._clock.get_tick_duration())
+                mode_str = time_data.get("mode", TimeMode.INTERNAL_DETERMINISTIC.value)
+                try:
+                    mode = TimeMode(mode_str)
+                except Exception:
+                    mode = TimeMode.INTERNAL_DETERMINISTIC
+                tick_duration = time_data.get("tick_duration", self._clock.get_tick_duration())
+                is_running = time_data.get("is_running", False)
+                is_paused = time_data.get("is_paused", False)
+                # Use restore_state to fully restore clock, allowing backward seek
+                self._clock.restore_state(
+                    tick=target_tick,
+                    simulation_time=sim_time,
+                    mode=mode,
+                    tick_duration=tick_duration,
+                    is_running=is_running,
+                    is_paused=is_paused,
+                )
+            except Exception as e:
+                # Fallback to force seek
+                self._logger.warning(f"Clock restore_state failed, fallback to seek with force: {e}")
+                try:
+                    self._clock.seek(time_data.get("tick", 0), force=True)
+                except Exception:
+                    pass
 
             # Restore entities
-            self._scene.entity_manager.restore_from_snapshot(snapshot.entities)
+            try:
+                self._scene.entity_manager.restore_from_snapshot(snapshot.entities)
+            except Exception as e:
+                self._logger.error(f"Failed to restore entities: {e}")
 
-            # Note: Full restoration of all systems would go here
-            # This is a simplified implementation
+            # Restore frames
+            try:
+                self._scene.frame_registry.clear()
+                for fid, fdata in snapshot.frames.items():
+                    try:
+                        frame = CoordinateFrame(
+                            id=FrameId(fdata.get("id", fid)),
+                            name=fdata.get("name", fid),
+                            origin=tuple(fdata.get("origin", (0.0, 0.0, 0.0))),
+                            parent_id=fdata.get("parent_id"),
+                        )
+                        self._scene.frame_registry.register(frame)
+                    except Exception as fe:
+                        self._logger.warning(f"Failed to restore frame {fid}: {fe}")
+            except Exception as e:
+                self._logger.error(f"Failed to restore frames: {e}")
+
+            # Restore origin rebaser current origin
+            try:
+                current_origin = engine_data.get("current_origin")
+                if current_origin:
+                    self._scene.origin_rebaser.set_origin(tuple(current_origin))
+            except Exception:
+                pass
+
+            # Restore RNG states
+            try:
+                rng_states = {}
+                for k, v in snapshot.rng_state.items():
+                    try:
+                        # v is dict from to_serializable
+                        rng_states[k] = RNGState.from_serializable(v)
+                    except Exception as re:
+                        self._logger.warning(f"Failed to deserialize RNG state {k}: {re}")
+                if rng_states:
+                    self._rng.restore_state(rng_states)
+            except Exception as e:
+                self._logger.error(f"Failed to restore RNG: {e}")
+
+            # Restore command history
+            try:
+                if snapshot.command_history:
+                    self._command_dispatcher.get_history().restore_from_snapshot(snapshot.command_history)
+            except Exception as e:
+                self._logger.error(f"Failed to restore command history: {e}")
+
+            # Restore event history
+            try:
+                if snapshot.event_history:
+                    self._event_bus.restore_from_snapshot(snapshot.event_history)
+            except Exception as e:
+                self._logger.error(f"Failed to restore event history: {e}")
 
             self._logger.info(f"Loaded snapshot: {name}")
 
@@ -406,6 +562,17 @@ class Engine:
             self._command_dispatcher.clear_pending()
         except Exception as e:
             self._logger.error(f"Error during shutdown: {e}")
+
+        # Unregister simulation thread if we own it
+        if self._owns_thread_registration:
+            try:
+                registry = get_simulation_thread_registry()
+                tid = threading.current_thread().ident
+                if tid is not None:
+                    registry.unregister_simulation_thread(tid)
+            except Exception as e:
+                self._logger.warning(f"Failed to unregister simulation thread: {e}")
+            self._owns_thread_registration = False
 
         self._state = EngineState.STOPPED
         self._logger.info("ASTRA engine shutdown complete")

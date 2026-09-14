@@ -1,10 +1,31 @@
 """Test suite for ASTRA Core determinism."""
 
 import pytest
+import threading
 from astra.core.rng import DeterministicRNG, RNGStream
 from astra.core.commands import CommandDispatcher, Command, CommandStatus
 from astra.core.engine import Engine, EngineState
 from astra.core.config import Config
+from astra.core.threading import (
+    AuthorityContext,
+    get_simulation_thread_registry,
+    reset_simulation_thread_registry,
+)
+
+
+@pytest.fixture(autouse=True)
+def setup_authority():
+    """Ensure simulation thread authority for command tests."""
+    reset_simulation_thread_registry()
+    registry = get_simulation_thread_registry()
+    tid = threading.current_thread().ident
+    if tid is not None:
+        try:
+            registry.register_simulation_thread(tid)
+        except Exception:
+            pass
+    yield
+    reset_simulation_thread_registry()
 
 
 class TestDeterministicRNG:
@@ -161,18 +182,21 @@ class TestDeterministicCommands:
         dispatcher.submit("cmd_d", tick=1, data={"name": "d"})
 
         # Execute tick 1 - should get cmd_a then cmd_d (by sequence)
-        results_tick1 = dispatcher.execute_pending(1)
+        with AuthorityContext("test_command_ordering"):
+            results_tick1 = dispatcher.execute_pending(1)
         assert len(results_tick1) == 2
         assert results_tick1[0][0].data["name"] == "a"
         assert results_tick1[1][0].data["name"] == "d"
 
         # Execute tick 2
-        results_tick2 = dispatcher.execute_pending(2)
+        with AuthorityContext("test_command_ordering"):
+            results_tick2 = dispatcher.execute_pending(2)
         assert len(results_tick2) == 1
         assert results_tick2[0][0].data["name"] == "b"
 
         # Execute tick 3
-        results_tick3 = dispatcher.execute_pending(3)
+        with AuthorityContext("test_command_ordering"):
+            results_tick3 = dispatcher.execute_pending(3)
         assert len(results_tick3) == 1
         assert results_tick3[0][0].data["name"] == "c"
 
@@ -186,8 +210,9 @@ class TestDeterministicCommands:
         dispatcher1.submit("test_cmd", tick=1, data={"value": 20})
         dispatcher1.submit("test_cmd", tick=2, data={"value": 30})
 
-        dispatcher1.execute_pending(1)
-        dispatcher1.execute_pending(2)
+        with AuthorityContext("test_history_replay"):
+            dispatcher1.execute_pending(1)
+            dispatcher1.execute_pending(2)
 
         # Get history
         history = dispatcher1.get_history().get_history()
@@ -221,7 +246,7 @@ class TestEngineDeterminism:
 
     def test_engine_deterministic_execution(self):
         """Test that engine produces deterministic results."""
-        config = Config(global_seed=42)
+        config = Config(global_seed=42, persistence_path="/tmp/astra_test_det1")
 
         # Run 1
         engine1 = Engine(config)
@@ -235,9 +260,18 @@ class TestEngineDeterminism:
             engine1.step()
 
         engine1.stop()
+        engine1.shutdown()
+
+        # Reset registry between runs to ensure clean state, then re-register
+        reset_simulation_thread_registry()
+        registry = get_simulation_thread_registry()
+        tid = threading.current_thread().ident
+        if tid is not None:
+            registry.register_simulation_thread(tid)
 
         # Run 2
-        engine2 = Engine(config)
+        config2 = Config(global_seed=42, persistence_path="/tmp/astra_test_det2")
+        engine2 = Engine(config2)
         engine2.initialize()
         engine2.start()
 
@@ -248,6 +282,7 @@ class TestEngineDeterminism:
             engine2.step()
 
         engine2.stop()
+        engine2.shutdown()
 
         # Results should be identical
         assert vals1 == vals2
@@ -278,6 +313,14 @@ class TestEngineDeterminism:
                 engine_a.step()
             final_tick_a = engine_a.clock.get_current_tick()
             engine_a.stop()
+            engine_a.shutdown()
+
+            # Reset and re-register for second engine
+            reset_simulation_thread_registry()
+            registry = get_simulation_thread_registry()
+            tid = threading.current_thread().ident
+            if tid is not None:
+                registry.register_simulation_thread(tid)
 
             # Simulation B: run -> load -> continue
             engine_b = Engine(config)
@@ -293,9 +336,19 @@ class TestEngineDeterminism:
                 engine_b.step()
             final_tick_b = engine_b.clock.get_current_tick()
             engine_b.stop()
+            engine_b.shutdown()
 
             # Ticks should match
             assert final_tick_a == final_tick_b
 
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
+            reset_simulation_thread_registry()
+            # Re-register for next tests (fixture will handle, but ensure)
+            registry = get_simulation_thread_registry()
+            tid = threading.current_thread().ident
+            if tid is not None:
+                try:
+                    registry.register_simulation_thread(tid)
+                except Exception:
+                    pass
