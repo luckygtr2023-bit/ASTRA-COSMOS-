@@ -1,47 +1,55 @@
-# Compiled Python files
-*.pyc
+```
+# Python
 __pycache__/
-
-# Virtual environments
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
 venv/
 .venv/
+.ENV
 .env
+.env.*
 .env.local
-*.env.*
-
-# Logs
-*.log
-
-# Coverage reports
 .coverage
 coverage/
 htmlcov/
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-*.tmp
+.pytest_cache/
+.mypy_cache/
+.tox/
 
 # Build artifacts
 dist/
 build/
-target/
-*.out
-*.exe
-*.dll
-*.so
-*.a
 *.egg-info/
-astra_core.egg-info/
 
-# Dependencies
-node_modules/
-.mypy_cache/
-.pytest_cache/
-.gradle/
+# Testing
+.tests/
+test/
+tests/
 
-# Snapshots
-astra_snapshots/
-./astra_snapshots/
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Compressed
+*.zip
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.gz
+*.bz2
+*.xz
+*.7z
+*.rar
+```
