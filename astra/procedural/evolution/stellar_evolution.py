@@ -25,9 +25,14 @@ from astra.procedural.provenance import DataProvenance, GenerationVersion
 class StellarEvolutionEngine:
     """Deterministic stellar aging and remnant transition."""
 
-    def __init__(self, time_engine: Any = None):
+    def __init__(self, time_engine: Any = None, region_manager: Any = None):
         # time_engine is optional: if provided, can query simulation time
         self.time_engine = time_engine
+        self.region_manager = region_manager
+
+    def attach_region_manager(self, region_manager: Any) -> None:
+        """Attach a RegionManager for long-term evolution via simulation hook."""
+        self.region_manager = region_manager
 
     def apply_evolution(self, star_state: Dict[str, Any], delta_gyr: float) -> Dict[str, Any]:
         if not isinstance(star_state, dict):
@@ -126,9 +131,31 @@ class StellarEvolutionEngine:
         """Hook signature compatible with SimulationTimeEngine.register_hook.
 
         `delta_s` is seconds; convert to Gyr for evolution if needed.
-        This hook is a no-op placeholder unless a region manager is attached;
-        it demonstrates where evolution would iterate over cached regions.
+        If a RegionManager is attached, iterate its cached regions and
+        apply deterministic evolution to each star (copy-on-write, cached
+        update). Otherwise no-op (demonstrates integration point).
         """
-        # No-op by default; real integration would iterate over RegionManager.generated_regions
-        # and call apply_evolution with delta_gyr = delta_s / (1e9 * 365.25*86400)
-        pass
+        if self.region_manager is None:
+            return
+        try:
+            delta_gyr = float(delta_s) / (1e9 * 365.25 * 86400.0)
+        except Exception:
+            return
+        if delta_gyr <= 0 or delta_gyr != delta_gyr:
+            return
+        # Deterministic iteration: sorted region ids for reproducibility
+        try:
+            regions = getattr(self.region_manager, "generated_regions", {})
+            for region_id in sorted(regions.keys()):
+                region = regions[region_id]
+                systems = region.get("systems", [])
+                for sys in systems:
+                    star = sys.get("star")
+                    if not isinstance(star, dict):
+                        continue
+                    evolved = self.apply_evolution(star, delta_gyr)
+                    # Update cached star in place (deterministic, versioned)
+                    sys["star"] = evolved
+        except Exception:
+            # Never raise into simulation tick — evolution is non-authoritative
+            return
