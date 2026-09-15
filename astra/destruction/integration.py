@@ -1,0 +1,107 @@
+"""Integration protocols for the Destruction & Impact package.
+
+These Protocols define the exact integration surface between this package
+and the rest of ASTRA. Concrete, TESTED adapters for the real systems are
+in ``astra.destruction.adapters``; this module only declares structure.
+
+Structural compatibility with the real systems:
+
+- ``RNGProvider.next_float()``   -> satisfied directly by
+  ``astra.core.rng.RNGStream`` (no adapter needed).
+- ``AuthorityProvider.require``  -> ``astra.core.threading.AuthorityContext``
+  via ``CoreAuthorityProvider`` (adapters.py); the context manager itself is
+  not duck-type compatible (it is a context manager, not a callable gate).
+- Entity registration            -> ``astra.core.entities.EntityManager`` via
+  ``CoreEntityRegistrarAdapter`` (EntityManager generates its own
+  deterministic EntityIds and has no payload store).
+- Event publishing               -> ``astra.core.events.EventBus`` via
+  ``CoreEventPublisherAdapter`` (EventBus.publish takes an Event object).
+- Persistence                    -> ``astra.core.persistence.PersistenceManager``
+  via ``CorePersistenceHookAdapter`` (Snapshot-based).
+- World spatial registration     -> ``astra.world.world.World`` via
+  ``CoreWorldRegistrarAdapter`` (index_object takes a position tuple, no
+  metadata parameter).
+- Celestial resolution           -> ``astra.celestial.properties.
+  CelestialProperties`` / ``CelestialObject`` via
+  ``CoreCelestialResolverAdapter`` (celestial layer is a static catalogue:
+  mass and radius only; position/velocity belong to motion/nbody).
+- Physics cross-checks           -> ``astra.physics.energy`` /
+  ``astra.physics.momentum`` via ``AstraPhysicsAdapter``.
+- N-body handoff of fragments    -> ``astra.nbody.system.NBodySystem`` via
+  ``NBodyDebrisSink``.
+- Orbital classification         -> ``astra.orbital.energy`` via
+  ``astra.destruction.analysis``.
+- Temporal                       -> sim_time_s is caller-supplied on the
+  ImpactEvent (no direct dependency on astra.temporal).
+"""
+from __future__ import annotations
+
+from typing import Any, Dict, Optional, Protocol, runtime_checkable
+
+
+@runtime_checkable
+class AuthorityProvider(Protocol):
+    """Mutation gate. Implementations raise AuthorityError when denied."""
+
+    def require(self, operation: str) -> None: ...
+
+
+@runtime_checkable
+class RNGProvider(Protocol):
+    """Deterministic uniform stream. Satisfied by astra.core.rng.RNGStream."""
+
+    def next_float(self) -> float: ...
+
+
+@runtime_checkable
+class EntityRegistrar(Protocol):
+    """Registers newly created destruction entities."""
+
+    def register(self, entity_id: str, kind: str, payload: Dict[str, Any]) -> None: ...
+    def unregister(self, entity_id: str) -> None: ...
+    def exists(self, entity_id: str) -> bool: ...
+
+
+@runtime_checkable
+class EventPublisher(Protocol):
+    """Publishes destruction lifecycle events."""
+
+    def publish(self, topic: str, payload: Dict[str, Any]) -> None: ...
+
+
+@runtime_checkable
+class PersistenceHook(Protocol):
+    """Persists/restores destruction payloads (JSON-serialisable dicts)."""
+
+    def save(self, key: str, payload: Dict[str, Any]) -> None: ...
+    def load(self, key: str) -> Optional[Dict[str, Any]]: ...
+
+
+@runtime_checkable
+class WorldRegistrar(Protocol):
+    """Registers debris/fragments with a world spatial index."""
+
+    def register_object(self, object_id: str, position: Any, metadata: Dict[str, Any]) -> None: ...
+    def unregister_object(self, object_id: str) -> None: ...
+
+
+@runtime_checkable
+class CelestialResolver(Protocol):
+    """Resolves authoritative celestial body properties.
+
+    The celestial layer is a static catalogue: only mass and radius are
+    resolved here. Kinematics come from the motion/nbody layers, never from
+    fabrication inside this package.
+    """
+
+    def get_mass_kg(self, object_id: str) -> float: ...
+    def get_radius_m(self, object_id: str) -> float: ...
+    def exists(self, object_id: str) -> bool: ...
+
+
+@runtime_checkable
+class PhysicsAdapter(Protocol):
+    """Cross-checks this package's energy/momentum against astra.physics."""
+
+    def kinetic_energy_j(self, mass_kg: float, velocity: Any) -> float: ...
+    def momentum_kg_m_s(self, mass_kg: float, velocity: Any) -> Any: ...
