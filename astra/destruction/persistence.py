@@ -171,6 +171,7 @@ def result_to_dict(r: ImpactResult) -> Dict[str, Any]:
         "fragments": [fragment_to_dict(f) for f in r.fragments],
         "ejecta": [ejecta_to_dict(p) for p in r.ejecta],
         "debris": [debris_to_dict(d0) for d0 in r.debris],
+        "child_impacts": [event_to_dict(c) for c in r.child_impacts],
         "energy": {
             "kinetic_energy_j": r.energy.kinetic_energy_j,
             "deposited_energy_j": r.energy.deposited_energy_j,
@@ -194,6 +195,7 @@ def result_from_dict(d: Dict[str, Any], *, config: DestructionConfig | None = No
         fragments = tuple(fragment_from_dict(f) for f in d.get("fragments", []))
         ejecta = tuple(ejecta_from_dict(p) for p in d.get("ejecta", []))
         debris = tuple(debris_from_dict(d0) for d0 in d.get("debris", []))
+        child_impacts = tuple(event_from_dict(c) for c in d.get("child_impacts", []))
         e = d["energy"]
         energy = ImpactEnergy(
             kinetic_energy_j=float(e["kinetic_energy_j"]),
@@ -222,6 +224,7 @@ def result_from_dict(d: Dict[str, Any], *, config: DestructionConfig | None = No
             fragments=fragments,
             ejecta=ejecta,
             debris=debris,
+            child_impacts=child_impacts,
             rng_seed_used=int(d.get("rng_seed_used", 0)),
             model_version=d.get("model_version", "astra.destruction.v1"),
             provenance=DataProvenance(d.get("provenance", DataProvenance.SIMULATED_DATA.value)),

@@ -61,6 +61,7 @@ from .types import (
     ImpactMomentum,
     ImpactResult,
     Provenance,
+    SecondaryTarget,
     Vec3,
 )
 
@@ -82,6 +83,7 @@ __all__ = [
     "FragmentState",
     "EjectaState",
     "DebrisState",
+    "SecondaryTarget",
     "Vec3",
     "Provenance",
     "DataProvenance",

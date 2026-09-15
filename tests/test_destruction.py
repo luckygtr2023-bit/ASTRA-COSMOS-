@@ -33,13 +33,12 @@ from astra.destruction import (
     DestructionSystem,
     DictPersistenceHook,
     ImpactEvent,
-    LimitExceededError,
     NBodyDebrisSink,
-    NumericalError,
     FragmentState,
     FragmentOrbit,
     OrbitClass,
     Provenance,
+    SecondaryTarget,
     UnsupportedBodyError,
     Vec3,
     classify_fragment_orbit,
@@ -672,3 +671,201 @@ def test_diagnostics():
     assert diag["impacts_executed"] == 1
     assert diag["tracked_damage_states"] == 1
     assert diag["entities_created"] > 0
+
+
+# -------------------------------------------------------- secondary impacts
+
+
+def _engineered_parent_result():
+    """Parent result with three fragments: two aimed at the moon, one away."""
+    ev = ImpactEvent(
+        impact_id="imp-parent",
+        impactor_id="ast-1",
+        target_id="earth",
+        sim_time_s=1000.0,
+        impactor_mass_kg=1.0e20,
+        target_mass_kg=5.972e24,
+        impactor_position=Vec3(6.471e6, 0.0, 0.0),
+        target_position=Vec3(0.0, 0.0, 0.0),
+        impactor_velocity=Vec3(-5e4, 0.0, 0.0),
+        target_velocity=Vec3(0.0, 0.0, 0.0),
+        target_radius_m=6.371e6,
+    )
+    s = _sys()
+    r = s.execute_impact(ev, seed=500)
+    moon = SecondaryTarget(
+        body_id="moon",
+        mass_kg=7.342e22,
+        position=Vec3(3.84e8, 0.0, 0.0),
+        velocity=Vec3(0.0, 0.0, 0.0),
+        radius_m=1.737e6,
+    )
+    frags = (
+        # Aimed straight at the moon: periapsis 0, closing over +x.
+        FragmentState(
+            fragment_id="fa", parent_id="earth", impact_id=ev.impact_id,
+            mass_kg=1.0e18, position=Vec3(1.0e7, 0.0, 0.0),
+            velocity=Vec3(3.0e3, 0.0, 0.0), created_at_s=1000.0,
+        ),
+        # Aimed at the moon but with an in-plane offset that still strikes.
+        FragmentState(
+            fragment_id="fb", parent_id="earth", impact_id=ev.impact_id,
+            mass_kg=2.0e18, position=Vec3(1.0e7, 1.0e6, 0.0),
+            velocity=Vec3(3.0e3, 0.0, 0.0), created_at_s=1000.0,
+        ),
+        # Receding from the moon (moves -x): never closes.
+        FragmentState(
+            fragment_id="fc", parent_id="earth", impact_id=ev.impact_id,
+            mass_kg=3.0e18, position=Vec3(-1.0e7, 0.0, 0.0),
+            velocity=Vec3(-3.0e3, 0.0, 0.0), created_at_s=1000.0,
+        ),
+    )
+    import dataclasses
+
+    r = dataclasses.replace(r, fragments=frags)
+    return r, moon
+
+
+def test_secondary_impacts_geometry_lineage_and_timing():
+    parent, moon = _engineered_parent_result()
+    s = _sys()
+    kids = s.execute_secondary_impacts(parent, targets=[moon], seed=900)
+    assert len(kids) == 2  # fa and fb strike; fc recedes
+    by_id = {k.event.impactor_id: k for k in kids}
+    fa = by_id["fa"]
+    # closing time: (3.84e8 - 1.737e6 surface... straight-line periapsis)
+    # t* = -p0.v/|v|^2 with p0 = (1e7-3.84e8, 0, 0), v = (3e3, 0, 0)
+    expected_t = (3.84e8 - 1.0e7) / 3.0e3
+    assert math.isclose(
+        fa.event.metadata["closing_time_s"], expected_t, rel_tol=1e-12
+    )
+    assert math.isclose(
+        fa.event.sim_time_s, 1000.0 + expected_t, rel_tol=1e-12
+    )
+    assert fa.event.metadata["parent_impact_id"] == "imp-parent"
+    assert fa.event.metadata["generation"] == 1
+    assert fa.event.impact_id == "imp-parent:secondary:0"
+    assert fa.event.target_id == "moon"
+    assert fa.event.target_radius_m == 1.737e6
+    # Children execute fully: the moon accrues damage in the ledger.
+    assert s.get_damage_state("moon") != DamageState.INTACT
+
+
+def test_secondary_impacts_deterministic_and_capped():
+    parent, moon = _engineered_parent_result()
+    kids1 = _sys().execute_secondary_impacts(parent, targets=[moon], seed=900)
+    kids2 = _sys().execute_secondary_impacts(parent, targets=[moon], seed=900)
+    assert [k.event.impact_id for k in kids1] == [k.event.impact_id for k in kids2]
+    assert [k.event.sim_time_s for k in kids1] == [k.event.sim_time_s for k in kids2]
+    assert [k.energy.kinetic_energy_j for k in kids1] == [
+        k.energy.kinetic_energy_j for k in kids2
+    ]
+    capped = _sys().execute_secondary_impacts(
+        parent, targets=[moon], seed=900, max_secondary=1
+    )
+    assert len(capped) == 1
+    none = _sys().execute_secondary_impacts(parent, targets=[], seed=900)
+    assert none == ()
+
+
+def test_secondary_impacts_use_real_fragment_trajectory():
+    # End-to-end: execute a real impact, then place a candidate body on one
+    # fragment's known trajectory — the scan must find exactly that hit.
+    s = _sys()
+    parent = s.execute_impact(_make_event(impactor_mass_kg=1e22), seed=77)
+    f = parent.fragments[0]
+    travel_t = 1000.0
+    moon_pos = f.position + f.velocity * travel_t
+    moon = SecondaryTarget(
+        body_id="moon",
+        mass_kg=7.342e22,
+        position=moon_pos,
+        velocity=Vec3(0.0, 0.0, 0.0),
+        radius_m=1.0e6,
+    )
+    kids = s.execute_secondary_impacts(parent, targets=[moon], seed=901)
+    assert len(kids) >= 1
+    first = kids[0]
+    assert math.isclose(
+        first.event.sim_time_s, parent.event.sim_time_s + travel_t, rel_tol=1e-9
+    )
+
+
+def test_secondary_impacts_empty_when_no_fragments():
+    s = _sys()
+    weak = s.execute_impact(_make_event(impactor_mass_kg=1e15), seed=1)
+    assert weak.fragments == ()
+    moon = SecondaryTarget(
+        body_id="moon", mass_kg=7.3e22,
+        position=Vec3(3.84e8, 0.0, 0.0), velocity=Vec3(0.0, 0.0, 0.0),
+        radius_m=1.7e6,
+    )
+    assert s.execute_secondary_impacts(weak, targets=[moon], seed=1) == ()
+
+
+def test_secondary_impacts_skip_movers_and_misses():
+    parent, moon = _engineered_parent_result()
+    s = _sys()
+    kids = s.execute_secondary_impacts(parent, targets=[moon], seed=900)
+    impactors = {k.event.impactor_id for k in kids}
+    assert "fc" not in impactors  # receding fragment correctly excluded
+    # Point target (radius 0) can never be hit.
+    point = SecondaryTarget(
+        body_id="pt", mass_kg=1e20,
+        position=Vec3(2.0e7, 0.0, 0.0), velocity=Vec3(0.0, 0.0, 0.0),
+        radius_m=0.0,
+    )
+    assert s.execute_secondary_impacts(parent, targets=[point], seed=900) == ()
+
+
+def test_secondary_targets_from_real_nbody_body():
+    body = NBodyBody(
+        id="moon",
+        mass=7.342e22,
+        position=Vector3(3.84e8, 0.0, 0.0),
+        velocity=Vector3(0.0, 0.0, 0.0),
+    )
+    tgt = SecondaryTarget.from_nbody_body(body, radius_m=1.737e6)
+    assert tgt.body_id == "moon"
+    assert tgt.radius_m == 1.737e6
+    assert tgt.mass_kg == 7.342e22
+
+
+def test_child_impacts_persisted_in_roundtrip():
+    import dataclasses
+
+    parent, moon = _engineered_parent_result()
+    s = _sys()
+    kids = s.execute_secondary_impacts(parent, targets=[moon], seed=900)
+    linked = dataclasses.replace(
+        parent, child_impacts=tuple(k.event for k in kids)
+    )
+    payload = result_to_dict(linked)
+    assert len(payload["child_impacts"]) == 2
+    assert json.loads(json.dumps(payload)) == payload  # JSON-safe
+    back = result_from_dict(json.loads(json.dumps(payload)))
+    assert len(back.child_impacts) == 2
+    assert back.child_impacts[0].metadata["parent_impact_id"] == "imp-parent"
+    assert back.child_impacts[0].target_id == "moon"
+
+
+# ------------------------------------------------------------ stress (bounded)
+
+
+def test_many_impacts_bounded_and_consistent():
+    ent = _RecordingEntities()
+    s = _sys(entities=ent)
+    n = 200
+    for i in range(n):
+        s.execute_impact(
+            _make_event(impact_id=f"stress-{i}", impactor_id=f"m-{i}",
+                        target_id=f"t-{i}", impactor_mass_kg=1e22),
+            seed=i,
+        )
+    diag = s.diagnostics()
+    assert diag["impacts_executed"] == n
+    assert diag["tracked_damage_states"] == n
+    # Every impact is output-bounded by config limits: 64 fragments + 68
+    # ejecta + 132 debris per impact under the default config.
+    assert diag["entities_created"] == n * (64 + 68 + 132)
+    assert len(ent.registered) == diag["entities_created"]

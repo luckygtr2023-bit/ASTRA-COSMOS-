@@ -31,9 +31,7 @@ registration runs AFTER all physics and limits succeed.)
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
-
-from astra.mathematics import Vector3
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from .config import DestructionConfig
 from .damage import DamageState, order, transition
@@ -69,6 +67,7 @@ from .types import (
     FragmentState,
     ImpactEvent,
     ImpactResult,
+    SecondaryTarget,
 )
 from .validation import require_non_negative, require_positive
 
@@ -153,6 +152,8 @@ class DestructionSystem:
 
         if isinstance(recursion_depth, bool) or not isinstance(recursion_depth, int):
             raise NumericalError("recursion_depth must be an int")
+        if recursion_depth < 0:
+            raise NumericalError("recursion_depth must be >= 0")
         if recursion_depth > self.config.limits.max_recursion_depth:
             raise LimitExceededError(
                 f"recursion depth {recursion_depth} exceeds "
@@ -296,19 +297,38 @@ class DestructionSystem:
 
     def execute_secondary_impacts(
         self,
-        parent_event: ImpactEvent,
+        parent_result: ImpactResult,
         *,
+        targets: Iterable[SecondaryTarget],
         seed: int,
         max_secondary: Optional[int] = None,
+        recursion_depth: int = 1,
     ) -> Tuple[ImpactResult, ...]:
-        """Bounded secondary-impact execution.
+        """Execute bounded, deterministic secondary impacts from a parent result.
 
-        Returns () in this revision: synthesising fragment/target collisions
-        requires the collision-detection layer (a World/Physics concern, not
-        a destruction concern). Callers that derive secondary ImpactEvents
-        themselves (e.g. from world spatial queries) can pass them to
-        execute_impact with an incremented ``recursion_depth``. This method
-        exists to keep the authority/limits surface explicit.
+        Model (documented approximation, SIMULATED_DATA):
+        - The parent's FRAGMENTS are candidate impactors (ejecta are treated
+          as debris, not re-impact drivers); ``targets`` are candidate bodies
+          supplied by the CALLER from authoritative sources (World spatial
+          queries, NBody, celestial registry — see ``SecondaryTarget``). This
+          package never fabricates candidate bodies itself.
+        - Under a constant-velocity (straight-line) approximation, a fragment
+          hits a target iff its relative periapsis lies inside the target
+          radius and the closing time is strictly in the future. Full swept
+          collision detection and gravity-curved trajectories remain
+          World/Physics/NBody-layer concerns and are not reimplemented here.
+        - Each child event carries lineage metadata
+          (``parent_impact_id``, ``generation``, ``closing_time_s``) and its
+          sim_time is the parent's sim_time plus the fragment's closing time.
+        - Children are executed through ``execute_impact`` at
+          ``recursion_depth`` (caller threads depth through chains), so all
+          normal validation, limits and damage-ledger updates apply.
+        - Fragments failing the physical floors (relative speed, impact
+          energy) or pairs with impactor == target are deterministically
+          skipped, never synthesised into invalid events.
+
+        Ordering is deterministic: fragments in parent order, targets in
+        caller order; at most ``max_secondary`` children are executed.
         """
         self._require_authority(OP_SECONDARY)
         cap = (
@@ -318,7 +338,90 @@ class DestructionSystem:
         )
         if cap < 0:
             raise NumericalError("max_secondary must be >= 0")
-        return ()
+        if isinstance(recursion_depth, bool) or not isinstance(recursion_depth, int):
+            raise NumericalError("recursion_depth must be an int")
+        if recursion_depth < 0 or recursion_depth > self.config.limits.max_recursion_depth:
+            raise LimitExceededError(
+                f"recursion_depth {recursion_depth} outside [0, "
+                f"{self.config.limits.max_recursion_depth}]"
+            )
+        if not isinstance(parent_result, ImpactResult):
+            raise ImpactValidationError("parent_result must be an ImpactResult")
+
+        # Materialize: generators must survive the fragment x target loop.
+        target_list = list(targets)
+
+        results: List[ImpactResult] = []
+        case_index = 0
+        for fragment in parent_result.fragments:
+            for target in target_list:
+                if len(results) >= cap:
+                    break
+                candidate = self._secondary_event_for_pair(
+                    parent_result, fragment, target, case_index, recursion_depth
+                )
+                case_index += 1
+                if candidate is None:
+                    continue
+                # Deterministic per-child seed derived from the caller's seed.
+                results.append(self.execute_impact(candidate, seed=seed + case_index))
+        return tuple(results)
+
+    def _secondary_event_for_pair(
+        self,
+        parent_result: ImpactResult,
+        fragment: FragmentState,
+        target: SecondaryTarget,
+        case_index: int,
+        recursion_depth: int,
+    ) -> Optional[ImpactEvent]:
+        """Straight-line impact test for one fragment against one target body."""
+        parent = parent_result.event
+        if target.radius_m <= 0.0:
+            return None  # no surface: cannot re-impact
+        if target.body_id == fragment.fragment_id:
+            return None  # self-pairing is not an impact
+
+        p0 = fragment.position - target.position
+        v = fragment.velocity - target.velocity
+        v_sq = v.magnitude_sq()
+        if v_sq ** 0.5 < self.config.limits.min_relative_speed_m_s:
+            return None  # co-moving: no impact
+        t_star = -p0.dot(v) / v_sq
+        if t_star <= 0.0:
+            return None  # moving away: periapsis in the past
+        closest = (p0 + v * t_star).magnitude()
+        if closest >= target.radius_m:
+            return None  # misses the target sphere
+
+        # Physical floors mirror validate_impact/execute_impact so skipped
+        # fragments never raise inside the scan loop.
+        m_red = (fragment.mass_kg * target.mass_kg) / (fragment.mass_kg + target.mass_kg)
+        ke = 0.5 * m_red * v_sq
+        if ke < self.config.limits.min_impact_energy_j:
+            return None
+
+        return ImpactEvent(
+            impact_id=f"{parent.impact_id}:secondary:{case_index}",
+            impactor_id=fragment.fragment_id,
+            target_id=target.body_id,
+            sim_time_s=parent.sim_time_s + t_star,
+            impactor_mass_kg=fragment.mass_kg,
+            target_mass_kg=target.mass_kg,
+            impactor_position=fragment.position,
+            target_position=target.position,
+            impactor_velocity=fragment.velocity,
+            target_velocity=target.velocity,
+            impactor_radius_m=0.0,
+            target_radius_m=target.radius_m,
+            reference_frame=parent.reference_frame,
+            provenance=DataProvenance.SIMULATED_DATA,
+            metadata={
+                "parent_impact_id": parent.impact_id,
+                "generation": recursion_depth,
+                "closing_time_s": t_star,
+            },
+        )
 
     # ------------------------------------------------------- persistence
 

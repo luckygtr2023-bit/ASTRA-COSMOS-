@@ -20,7 +20,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
+
+if TYPE_CHECKING:  # resolve forward references for static analysis only
+    from .damage import DamageState
 
 from astra.mathematics import Vector3
 
@@ -220,6 +223,44 @@ class DebrisState:
         _vec_finite("position", self.position)
         _vec_finite("velocity", self.velocity)
         _provenance(self.provenance)
+
+
+@dataclass(frozen=True)
+class SecondaryTarget:
+    """A caller-supplied candidate body for secondary-impact scanning.
+
+    Callers obtain these from their own authoritative sources (World spatial
+    queries, NBody bodies, celestial registry) — this package never fabricates
+    candidate bodies by itself.
+    """
+
+    body_id: str
+    mass_kg: float
+    position: Vector3
+    velocity: Vector3
+    radius_m: float = 0.0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.body_id, str) or not self.body_id:
+            raise NumericalError("SecondaryTarget.body_id must be a non-empty str")
+        if _finite("mass_kg", self.mass_kg) <= 0.0:
+            raise NumericalError("SecondaryTarget.mass_kg must be > 0")
+        _finite("radius_m", self.radius_m)
+        if self.radius_m < 0.0:
+            raise NumericalError("SecondaryTarget.radius_m must be >= 0")
+        _vec_finite("position", self.position)
+        _vec_finite("velocity", self.velocity)
+
+    @classmethod
+    def from_nbody_body(cls, body, radius_m: float = 0.0) -> "SecondaryTarget":
+        """Adapt an ``astra.nbody.bodies.NBodyBody`` (duck-typed)."""
+        return cls(
+            body_id=body.id,
+            mass_kg=body.mass,
+            position=body.position,
+            velocity=body.velocity,
+            radius_m=radius_m,
+        )
 
 
 @dataclass(frozen=True)

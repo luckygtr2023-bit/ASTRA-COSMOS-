@@ -224,8 +224,10 @@ def test_authority_required_when_unconfigured():
         s.execute_impact(_make_event(), seed=8)
     with pytest.raises(AuthorityError):
         s.set_damage_state("earth", DamageState.DAMAGED)
+    # Secondary scans are authority-gated even with a valid parent result.
+    parent = _sys().execute_impact(_make_event(impactor_mass_kg=1e22), seed=8)
     with pytest.raises(AuthorityError):
-        s.execute_secondary_impacts(_make_event(), seed=8)
+        s.execute_secondary_impacts(parent, targets=[], seed=8)
 
 
 def test_authority_denied_by_provider():
@@ -378,3 +380,189 @@ def test_vector_and_scalar_edge_values():
     ev0 = _make_event(impact_id="imp-t0", sim_time_s=0.0)
     r0 = _sys().execute_impact(ev0, seed=36)
     assert r0.event.sim_time_s == 0.0
+
+
+# ------------------------------------------------ adversarial secondary impacts
+
+
+def test_negative_recursion_depth_rejected():
+    s = _sys()
+    with pytest.raises(NumericalError):
+        s.execute_impact(_make_event(), seed=1, recursion_depth=-1)
+
+
+def test_secondary_wrong_parent_type_rejected():
+    from astra.destruction import SecondaryTarget
+
+    s = _sys()
+    moon = SecondaryTarget(
+        body_id="moon", mass_kg=7.3e22,
+        position=Vec3(3.84e8, 0.0, 0.0), velocity=Vec3(0.0, 0.0, 0.0),
+        radius_m=1.7e6,
+    )
+    with pytest.raises(ImpactValidationError):
+        s.execute_secondary_impacts(
+            _make_event(), targets=[moon], seed=1  # type: ignore[arg-type]
+        )
+
+
+def test_secondary_negative_cap_rejected():
+    from astra.destruction import SecondaryTarget
+
+    s = _sys()
+    parent = s.execute_impact(_make_event(impactor_mass_kg=1e22), seed=1)
+    moon = SecondaryTarget(
+        body_id="moon", mass_kg=7.3e22,
+        position=Vec3(3.84e8, 0.0, 0.0), velocity=Vec3(0.0, 0.0, 0.0),
+        radius_m=1.7e6,
+    )
+    with pytest.raises(NumericalError):
+        s.execute_secondary_impacts(parent, targets=[moon], seed=1, max_secondary=-1)
+
+
+def test_secondary_recursion_depth_out_of_range():
+    from astra.destruction import SecondaryTarget
+
+    s = _sys()
+    parent = s.execute_impact(_make_event(impactor_mass_kg=1e22), seed=1)
+    moon = SecondaryTarget(
+        body_id="moon", mass_kg=7.3e22,
+        position=Vec3(3.84e8, 0.0, 0.0), velocity=Vec3(0.0, 0.0, 0.0),
+        radius_m=1.7e6,
+    )
+    with pytest.raises(LimitExceededError):
+        s.execute_secondary_impacts(
+            parent, targets=[moon], seed=1, recursion_depth=99
+        )
+    with pytest.raises(LimitExceededError):
+        s.execute_secondary_impacts(
+            parent, targets=[moon], seed=1, recursion_depth=-1
+        )
+    with pytest.raises(NumericalError):
+        s.execute_secondary_impacts(
+            parent, targets=[moon], seed=1, recursion_depth=1.5  # type: ignore[arg-type]
+        )
+
+
+def test_secondary_target_validation():
+    from astra.destruction import SecondaryTarget
+
+    with pytest.raises(NumericalError):
+        SecondaryTarget(
+            body_id="x", mass_kg=0.0,
+            position=Vec3(0.0, 0.0, 0.0), velocity=Vec3(0.0, 0.0, 0.0),
+        )
+    with pytest.raises(NumericalError):
+        SecondaryTarget(
+            body_id="x", mass_kg=1.0,
+            position=Vec3(float("nan"), 0.0, 0.0), velocity=Vec3(0.0, 0.0, 0.0),
+        )
+    with pytest.raises(NumericalError):
+        SecondaryTarget(
+            body_id="x", mass_kg=1.0,
+            position=Vec3(0.0, 0.0, 0.0), velocity=Vec3(0.0, 0.0, 0.0),
+            radius_m=-5.0,
+        )
+    with pytest.raises(NumericalError):
+        SecondaryTarget(
+            body_id="", mass_kg=1.0,
+            position=Vec3(0.0, 0.0, 0.0), velocity=Vec3(0.0, 0.0, 0.0),
+        )
+
+
+def test_secondary_authority_denied():
+    from astra.destruction import SecondaryTarget
+
+    parent = _sys().execute_impact(_make_event(impactor_mass_kg=1e22), seed=2)
+    s = _sys(authority=_DenyAll())
+    moon = SecondaryTarget(
+        body_id="moon", mass_kg=7.3e22,
+        position=Vec3(3.84e8, 0.0, 0.0), velocity=Vec3(0.0, 0.0, 0.0),
+        radius_m=1.7e6,
+    )
+    with pytest.raises(AuthorityError):
+        s.execute_secondary_impacts(parent, targets=[moon], seed=2)
+
+
+def test_secondary_skips_comoving_pairs():
+    from astra.destruction import SecondaryTarget
+    import dataclasses
+
+    r = _sys().execute_impact(_make_event(impactor_mass_kg=1e22), seed=3)
+    f = r.fragments[0]
+    # Target placed exactly on the fragment's future path but co-moving with
+    # it: relative speed zero -> never an impact.
+    comoving = SecondaryTarget(
+        body_id="ghost", mass_kg=1.0e20,
+        position=f.position + f.velocity * 100.0,
+        velocity=f.velocity,
+        radius_m=1.0e9,
+    )
+    parent = dataclasses.replace(r, fragments=r.fragments[:1])
+    s = _sys()
+    assert s.execute_secondary_impacts(parent, targets=[comoving], seed=4) == ()
+
+
+def _engineered_parent_result_adv():
+    """Local copy of the engineered parent (test files are not importable)."""
+    import dataclasses
+
+    from astra.destruction import FragmentState, SecondaryTarget
+
+    ev = ImpactEvent(
+        impact_id="imp-parent-adv",
+        impactor_id="ast-1",
+        target_id="earth",
+        sim_time_s=1000.0,
+        impactor_mass_kg=1.0e20,
+        target_mass_kg=5.972e24,
+        impactor_position=Vec3(6.471e6, 0.0, 0.0),
+        target_position=Vec3(0.0, 0.0, 0.0),
+        impactor_velocity=Vec3(-5e4, 0.0, 0.0),
+        target_velocity=Vec3(0.0, 0.0, 0.0),
+        target_radius_m=6.371e6,
+    )
+    r = _sys().execute_impact(ev, seed=500)
+    moon = SecondaryTarget(
+        body_id="moon",
+        mass_kg=7.342e22,
+        position=Vec3(3.84e8, 0.0, 0.0),
+        velocity=Vec3(0.0, 0.0, 0.0),
+        radius_m=1.737e6,
+    )
+    frags = (
+        FragmentState(
+            fragment_id="fa", parent_id="earth", impact_id=ev.impact_id,
+            mass_kg=1.0e18, position=Vec3(1.0e7, 0.0, 0.0),
+            velocity=Vec3(3.0e3, 0.0, 0.0), created_at_s=1000.0,
+        ),
+        FragmentState(
+            fragment_id="fb", parent_id="earth", impact_id=ev.impact_id,
+            mass_kg=2.0e18, position=Vec3(1.0e7, 1.0e6, 0.0),
+            velocity=Vec3(3.0e3, 0.0, 0.0), created_at_s=1000.0,
+        ),
+        FragmentState(
+            fragment_id="fc", parent_id="earth", impact_id=ev.impact_id,
+            mass_kg=3.0e18, position=Vec3(-1.0e7, 0.0, 0.0),
+            velocity=Vec3(-3.0e3, 0.0, 0.0), created_at_s=1000.0,
+        ),
+    )
+    return dataclasses.replace(r, fragments=frags), moon
+
+
+def test_secondary_targets_accepts_generator():
+    parent, moon = _engineered_parent_result_adv()
+    s = _sys()
+    kids = s.execute_secondary_impacts(
+        parent, targets=(t for t in [moon]), seed=900
+    )
+    assert len(kids) == 2
+
+
+def test_secondary_cap_zero_returns_empty():
+    parent, moon = _engineered_parent_result_adv()
+    s = _sys()
+    assert (
+        s.execute_secondary_impacts(parent, targets=[moon], seed=900, max_secondary=0)
+        == ()
+    )
