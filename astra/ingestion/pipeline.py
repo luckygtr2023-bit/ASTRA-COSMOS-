@@ -43,6 +43,8 @@ from astra.ingestion.database import (
     connect,
     ensure_schema,
     insert_batch,
+    register_all_archive_sources,
+    seed_pipeline_queries,
 )
 from astra.ingestion.exceptions import (
     IngestionContractError,
@@ -126,6 +128,11 @@ class GaiaDR3IngestionPipeline:
         conn = connect(self.db_path)
         try:
             ensure_schema(conn)
+            # Idempotent registration of the master archive's four
+            # authoritative repositories (endpoints, protocols, ICRS/ICRF
+            # frames, J2016.0/J2000.0 epochs) + stored production queries.
+            register_all_archive_sources(conn)
+            seed_pipeline_queries(conn)
             manifest = IngestionManifest.begin(
                 conn,
                 self._new_run_id(conn, adql_hash),

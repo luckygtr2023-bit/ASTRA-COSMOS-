@@ -39,6 +39,7 @@ from astra.ingestion.schema import (
     COLUMN_NAMES,
     DDL_INDEXES,
     DDL_MANIFEST,
+    DDL_SOURCES_REGISTRY,
     DDL_STARS_ASTROMETRY,
 )
 from astra.ingestion.validate import GaiaRecord
@@ -73,11 +74,133 @@ def connect(db_path: str) -> sqlite3.Connection:
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
-    """Create tables and supporting indexes if absent (idempotent)."""
-    conn.execute(DDL_STARS_ASTROMETRY)
+    """Create all tables and supporting indexes if absent (idempotent).
+
+    Creates the master archive's seven core tables plus the pipeline's
+    ``ingestion_manifest`` run ledger.
+    """
+    from astra.ingestion.schema import ARCHIVE_TABLE_DDLS
+
+    for ddl in ARCHIVE_TABLE_DDLS:
+        conn.execute(ddl)
     conn.execute(DDL_MANIFEST)
     for ddl in DDL_INDEXES:
         conn.execute(ddl)
+
+
+def register_source(
+    conn: sqlite3.Connection,
+    metadata: dict,
+    *,
+    registered_utc: Optional[str] = None,
+) -> None:
+    """Register (or idempotently refresh) catalog-source metadata.
+
+    ``sources_registry`` records HOW a catalog's data was obtained. Required
+    keys follow the master archive's schema: ``source_key``, ``catalog_name``,
+    ``provider``, ``release``, ``endpoint_url``, ``protocol``,
+    ``reference_frame``, ``reference_epoch`` (TEXT, as published - e.g.
+    "J2016.0"). Optional annotations: ``data_classification_default``,
+    ``model_inferred_columns``. Re-registration UPDATES the row
+    (last-writer-wins on our own metadata); it never touches measurements.
+    """
+    required = (
+        "source_key", "catalog_name", "provider", "release",
+        "endpoint_url", "protocol", "reference_frame", "reference_epoch",
+    )
+    missing = [key for key in required if key not in metadata]
+    if missing:
+        raise IngestionError(
+            "source metadata is missing required keys",
+            {"missing": missing},
+        )
+    now = registered_utc or _utc_now()
+    conn.execute(
+        "INSERT INTO sources_registry "
+        "(source_key, catalog_name, provider, release, endpoint_url, protocol, "
+        "reference_frame, reference_epoch, data_classification_default, "
+        "model_inferred_columns, first_registered_utc, updated_utc) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(source_key) DO UPDATE SET "
+        "catalog_name = excluded.catalog_name, provider = excluded.provider, "
+        "release = excluded.release, endpoint_url = excluded.endpoint_url, "
+        "protocol = excluded.protocol, reference_frame = excluded.reference_frame, "
+        "reference_epoch = excluded.reference_epoch, "
+        "data_classification_default = excluded.data_classification_default, "
+        "model_inferred_columns = excluded.model_inferred_columns, "
+        "updated_utc = excluded.updated_utc",
+        (
+            metadata["source_key"],
+            metadata["catalog_name"],
+            metadata["provider"],
+            metadata["release"],
+            metadata["endpoint_url"],
+            metadata["protocol"],
+            metadata["reference_frame"],
+            metadata["reference_epoch"],
+            metadata.get("data_classification_default"),
+            json.dumps(metadata["model_inferred_columns"])
+            if "model_inferred_columns" in metadata else None,
+            now,
+            now,
+        ),
+    )
+
+
+def register_all_archive_sources(
+    conn: sqlite3.Connection,
+    *,
+    registered_utc: Optional[str] = None,
+) -> None:
+    """Register the master archive's four authoritative repositories."""
+    from astra.ingestion.schema import ARCHIVE_SOURCES_REGISTRY
+    for metadata in ARCHIVE_SOURCES_REGISTRY:
+        register_source(conn, metadata, registered_utc=registered_utc)
+
+
+def seed_pipeline_queries(
+    conn: sqlite3.Connection,
+) -> int:
+    """Seed ``pipeline_queries`` with the archive's stored production queries.
+
+    The four queries are normative CONFIGURATION from the master archive
+    (section 3.7): they define what ASTRA asks each catalog for. Seeding is
+    idempotent per target catalog (existing rows are never duplicated or
+    modified). Returns the number of rows inserted.
+    """
+    from astra.ingestion.archive_queries import PIPELINE_QUERIES
+    inserted = 0
+    for spec in PIPELINE_QUERIES:
+        existing = conn.execute(
+            "SELECT query_id FROM pipeline_queries "
+            "WHERE target_catalog = ? AND query_type = ?",
+            (spec["target_catalog"], spec["query_type"]),
+        ).fetchone()
+        if existing is not None:
+            continue
+        conn.execute(
+            "INSERT INTO pipeline_queries "
+            "(target_catalog, query_type, endpoint_url, query_body) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                spec["target_catalog"],
+                spec["query_type"],
+                spec["endpoint_url"],
+                spec["query_body"],
+            ),
+        )
+        inserted += 1
+    return inserted
+
+
+def get_source(
+    conn: sqlite3.Connection, source_key: str
+) -> Optional[sqlite3.Row]:
+    """Return the registry row for ``source_key`` or None."""
+    cur = conn.execute(
+        "SELECT * FROM sources_registry WHERE source_key = ?", (source_key,)
+    )
+    return cur.fetchone()
 
 
 def insert_batch(
