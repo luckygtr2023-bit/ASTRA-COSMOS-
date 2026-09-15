@@ -1,23 +1,29 @@
-# ASTRA CORE
+# ASTRA COSMOS
 
-Foundational runtime layer for the ASTRA simulation engine.
+Universe-scale simulation engine.
 
 ## Overview
 
-ASTRA CORE provides the infrastructure required by future specialist systems:
+ASTRA provides infrastructure for:
 
 - Mathematics
 - Physics
 - Motion
-- Spacetime
-- Astronomy
-- Celestial systems
-- Cosmology
-- Observation
-- Rendering
-- Graphics
-- UI
-- Backend/integration
+- Orbital Mechanics  ✓
+- N-Body  ✓
+- Spacecraft Physics  ✓
+- Relativity  ✓
+- Black-Hole Physics  ✓
+- Spacetime Physics  ✓
+- Temporal / Causality  ✓
+- Celestial Objects  ✓
+- Astronomical Data Ingestion  ✓
+- World / Scene  ✓
+- Destruction & Impact  ✓
+- **Rendering Architecture  ✓**
+- **Backend & Runtime Integration  ✓ (this phase)**
+- Graphics / VFX (future)
+- Blender Bridge (future)
 
 ## Installation
 
@@ -41,8 +47,10 @@ engine.stop()
 
 ## Documentation
 
-See `CORE_CONTRACT.md` for the detailed API contract.
-See `ASTRA_CORE.txt` for the architectural specification.
+- `CORE_CONTRACT.md` – Core API contract
+- `ASTRA_CORE.txt` – Core architectural specification
+- `RENDERING_ARCHITECTURE.md` – Rendering architecture (authority boundary, RenderState/Context, Camera, Floating Origin, LOD, Culling, Celestial/Planetary, Destruction, Spacetime, Temporal, Performance, Pipeline, future Blender/Graphics extension points)
+- `BACKEND_ARCHITECTURE.md` – Backend & runtime integration (config, persistence, services, cache, render/graphics delivery, data access, security, diagnostics, lifecycle, error boundaries; 76 tests; design for future Graphics→Blender→MCP bridge via `to_dict` without `bpy`)
 
 ## License
 
