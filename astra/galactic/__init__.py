@@ -1,0 +1,88 @@
+"""ASTRA COSMOS — Galactic / Large-Scale Structure Engine."""
+from .config import GalacticConfig, PerformanceBudget
+from .errors import (
+    GalacticError,
+    GalacticValidationError,
+    GalacticAuthorityError,
+    GalacticNumericalError,
+    GalacticDependencyError,
+    GalacticHierarchyError,
+    GalacticLimitationError,
+)
+from .limitations import LimitationState
+from .provenance import Provenance, ObservedValue, DerivedValue, SimulatedValue, UnknownValue
+from .types import (
+    Vec3,
+    CoordinateContext,
+    Frame,
+    DistanceKind,
+    GalaxyType,
+    Bulge,
+    Disk,
+    Halo,
+    Galaxy,
+    GalaxyGroup,
+    GalaxyCluster,
+    Supercluster,
+    VoidBoundaryKind,
+    CosmicVoid,
+    Filament,
+    Sheet,
+    CosmicNode,
+    CosmicWeb,
+    HierarchyEdge,
+    HierarchyRelation,
+    DensitySample,
+)
+from .velocity import VelocityDecomposition, hubble_flow_velocity, decompose_velocity
+from .geometry import comoving_separation_mpc, proper_separation_mpc, virial_radius_from_mass, center_of_mass
+from .engine import GalacticEngine
+
+__all__ = [
+    "GalacticEngine",
+    "GalacticConfig",
+    "PerformanceBudget",
+    "Provenance",
+    "ObservedValue",
+    "DerivedValue",
+    "SimulatedValue",
+    "UnknownValue",
+    "LimitationState",
+    "Vec3",
+    "CoordinateContext",
+    "Frame",
+    "DistanceKind",
+    "GalaxyType",
+    "Bulge",
+    "Disk",
+    "Halo",
+    "Galaxy",
+    "GalaxyGroup",
+    "GalaxyCluster",
+    "Supercluster",
+    "CosmicVoid",
+    "VoidBoundaryKind",
+    "Filament",
+    "Sheet",
+    "CosmicNode",
+    "CosmicWeb",
+    "HierarchyEdge",
+    "HierarchyRelation",
+    "DensitySample",
+    "VelocityDecomposition",
+    "hubble_flow_velocity",
+    "decompose_velocity",
+    "comoving_separation_mpc",
+    "proper_separation_mpc",
+    "virial_radius_from_mass",
+    "center_of_mass",
+    "GalacticError",
+    "GalacticValidationError",
+    "GalacticAuthorityError",
+    "GalacticNumericalError",
+    "GalacticDependencyError",
+    "GalacticHierarchyError",
+    "GalacticLimitationError",
+]
+
+__version__ = "1.0.0"
