@@ -329,9 +329,19 @@ class TravelEvent:
         _finite("proper_elapsed_time_s", self.proper_elapsed_time_s)
         _finite("coordinate_elapsed_time_s", self.coordinate_elapsed_time_s)
         _finite("observer_elapsed_time_s", self.observer_elapsed_time_s)
-        if self.arrival_coordinate_time_s < self.departure_coordinate_time_s:
-            # allow equality for wormhole traversal with 0 duration? but not negative
-            raise TravelNumericalError("arrival precedes departure")
+        # Allow arrival < departure only for wormhole CTC (Morris-Thorne-Yurtsever time shift)
+        # where coordinate goes backward while proper advances — distinct diagnostic representation.
+        if self.arrival_coordinate_time_s < self.departure_coordinate_time_s - 1e-12:
+            if not (
+                self.mechanism == Mechanism.WORMHOLE
+                and self.causal_status in (CausalStatus.CTC, CausalStatus.CAUSALLY_INVALID)
+                and self.provenance in (Provenance.HYPOTHETICAL, Provenance.SPECULATIVE)
+            ):
+                raise TravelNumericalError("arrival precedes departure (only wormhole CTC may be backward)")
+            # For CTC, coordinate_elapsed may be negative — still finite, but we record magnitude in metadata
+            # Ensure proper still advances forward (already finite >=0 checked)
+            if self.proper_elapsed_time_s < -1e-12:
+                raise TravelNumericalError("proper elapsed must be >=0 even for CTC")
         if not isinstance(self.worldline, Worldline):
             raise TravelNumericalError("worldline must be Worldline")
         if not isinstance(self.causal_status, CausalStatus):

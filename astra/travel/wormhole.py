@@ -1,18 +1,20 @@
 """Wormhole travel. Reconciled.
 
-Wormholes are HYPOTHETICAL in the standard model of known physics.
-All outputs must be classified accordingly. Never present as confirmed.
+Wormholes are HYPOTHETICAL in the standard model. Time-shifted two-mouth
+configurations (Morris-Thorne-Yurtsever) allow CTC analysis where the
+mouths carry a relative time offset. This module models mouth temporal
+offsets and diagnoses chronology violation when external light-travel vs
+time-shift permits a closed timelike loop.
 
-Integration: uses MorrisThorneMetric / EinsteinRosenMetric from
-astra.theoretical.wormhole where a MetricField is needed. The scaffold
-Wormhole dataclass is retained for API compatibility and wraps the
-theoretical metric for physics-aware traversal.
+Integration: uses MorrisThorneMetric / EinsteinRosenMetric where needed,
+but retains the single-patch throat geometry for local traversal; the
+time-shift is a global topology parameter beyond the local metric.
 """
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Tuple
 
 from .errors import TravelNumericalError, TravelUnsupportedError
 from .types import CausalStatus, Mechanism, Provenance, Vec3, _to_vec3
@@ -45,8 +47,10 @@ class WormholeMouth:
 class Wormhole:
     """Traversable wormhole descriptor — hypothetical.
 
-    For physics-aware use, construct via create_traversable_wormhole()
-    which validates the underlying MorrisThorneMetric geometry.
+    Mouth time offset = mouth_b.coordinate_time_s - mouth_a.coordinate_time_s
+    represents the global time shift between mouths. When non-zero, external
+    light travel vs shift determines CTC possibility (Morris-Thorne-Yurtsever).
+    Local metric still uses MorrisThorne throat parameters.
     """
 
     wormhole_id: str
@@ -79,8 +83,50 @@ class Wormhole:
         if not isinstance(self.metric_parameters, dict):
             raise TravelNumericalError("metric_parameters must be dict")
         if self.provenance != Provenance.HYPOTHETICAL and self.provenance != Provenance.SPECULATIVE:
-            # enforce hypothetical/speculative for wormholes — never allow REAL
             raise TravelNumericalError("wormhole provenance must be HYPOTHETICAL or SPECULATIVE")
+
+    @property
+    def time_shift_s(self) -> float:
+        """Global time offset between mouths (B - A). Negative means B is in the past."""
+        return float(self.mouth_b.coordinate_time_s - self.mouth_a.coordinate_time_s)
+
+    @property
+    def mouth_separation_m(self) -> float:
+        return (self.mouth_b.position - self.mouth_a.position).norm()
+
+    def chronology_violation_possible(self) -> Tuple[bool, str]:
+        """Determine if this time-shifted wormhole permits a CTC.
+
+        Classic condition: if |time_shift| + traversal_duration < external_light_travel_time,
+        you can exit B in the past and return to A via external space before you left,
+        forming a closed timelike loop.
+
+        For non-time-shifted wormholes (|Δt| ≈ 0), no CTC is possible in single-patch.
+        """
+        from astra.relativity.core import SPEED_OF_LIGHT
+
+        d = self.mouth_separation_m
+        dt_external = d / SPEED_OF_LIGHT if SPEED_OF_LIGHT != 0 else float("inf")
+        time_shift = self.time_shift_s
+        # Traversal is assumed to be near-instant for CTC analysis (proper distance dominates)
+        total_shift = abs(time_shift) - self.traversal_duration_s
+        # If time shift magnitude exceeds external light travel + traversal, CTC possible
+        if abs(time_shift) > 1e-12 and (abs(time_shift) > dt_external + self.traversal_duration_s):
+            return True, (
+                f"Time shift |Δt|={abs(time_shift):.3g}s exceeds external light travel "
+                f"{dt_external:.3g}s + traversal {self.traversal_duration_s:.3g}s — "
+                "Morris-Thorne-Yurtsever CTC possible (diagnostic only, not traversable execution)."
+            )
+        if abs(time_shift) < 1e-12:
+            return False, (
+                "Single-patch Morris-Thorne geometry: no inter-mouth time offset is configured, "
+                "so no closed timelike curve can be produced by this configuration. "
+                "Chronology protection analysis only — ASTRA provides no time-travel execution API."
+            )
+        return False, (
+            f"Time shift |Δt|={abs(time_shift):.3g}s + traversal {self.traversal_duration_s:.3g}s "
+            f"does not exceed external light travel {dt_external:.3g}s — no CTC in this configuration."
+        )
 
 
 def create_traversable_wormhole(
@@ -93,15 +139,10 @@ def create_traversable_wormhole(
     shape_func=None,
     redshift_func=None,
 ) -> tuple[Wormhole, object]:
-    """Create a wormhole with validated MorrisThorne geometry.
-
-    Returns (Wormhole descriptor, MorrisThorneMetric). Raises on invalid
-    geometry (flare-out violation etc.) via the theoretical layer.
-    """
+    """Create a wormhole with validated MorrisThorne geometry."""
     from astra.theoretical.wormhole import MorrisThorneMetric
 
     if shape_func is None:
-        # default shape function for a simple wormhole: b(r)=r0^2/r
         r0 = float(throat_radius_m)
 
         def _shape(r: float) -> float:
@@ -129,11 +170,11 @@ def traverse(
     traveler_id: str,
     departure_coordinate_time_s: float,
 ) -> Dict[str, object]:
-    """Scaffold traversal — returns descriptor without teleport shortcut.
+    """Traversal descriptor — respects mouth time offset.
 
-    Validates stability and temporal ordering; the engine turns the
-    descriptor into a worldline through the spacetime provider.  Does NOT
-    teleport — a worldline with proper duration is still constructed.
+    Arrival = departure + traversal_duration + time_shift (B - A).
+    This captures backward time travel when B is in the past (negative shift).
+    Worldline construction still requires a finite worldline (engine builds it).
     """
     if not isinstance(wormhole, Wormhole):
         raise TravelNumericalError("wormhole must be Wormhole")
@@ -151,10 +192,27 @@ def traverse(
     if dep < wormhole.mouth_a.coordinate_time_s - 1e-9:
         raise TravelUnsupportedError("departure before mouth A exists")
 
-    arrival_coordinate_time_s = dep + wormhole.traversal_duration_s
-    # proper duration is traversal_duration for zero-tidal model; more
-    # generally would integrate via MorrisThorne proper distance, but we keep
-    # deterministic scaffold value here and allow engine to substitute metric_proper
+    time_shift = wormhole.time_shift_s
+    arrival_coordinate_time_s = dep + wormhole.traversal_duration_s + time_shift
+
+    if arrival_coordinate_time_s < 0:
+        # Arrival in negative time would be before simulation epoch — treat as causal violation
+        # but we allow it for CTC representation and let engine's causality check handle it
+        pass
+
+    # Proper duration is traversal_duration for zero-tidal model; time shift does not affect proper
+    # (shift is coordinate, passenger proper is invariant)
+    proper_duration = wormhole.traversal_duration_s
+
+    # Determine causal status hint
+    causal_hint = CausalStatus.UNKNOWN
+    if time_shift < -1e-9 and arrival_coordinate_time_s < dep:
+        causal_hint = CausalStatus.CTC
+    elif arrival_coordinate_time_s < dep - 1e-9:
+        causal_hint = CausalStatus.CAUSALLY_INVALID
+
+    ctc_possible, analysis = wormhole.chronology_violation_possible()
+
     return {
         "wormhole_id": wormhole.wormhole_id,
         "traveler_id": traveler_id,
@@ -162,9 +220,27 @@ def traverse(
         "arrival_position": wormhole.mouth_b.position,
         "departure_coordinate_time_s": dep,
         "arrival_coordinate_time_s": arrival_coordinate_time_s,
-        "proper_duration_s": wormhole.traversal_duration_s,
+        "proper_duration_s": proper_duration,
         "mechanism": Mechanism.WORMHOLE,
-        "causal_status": CausalStatus.UNKNOWN,
+        "causal_status": causal_hint,
         "provenance": Provenance.HYPOTHETICAL,
         "metric_parameters": dict(wormhole.metric_parameters),
+        "time_shift_s": time_shift,
+        "ctc_possible": ctc_possible,
+        "chronology_analysis": analysis,
+    }
+
+
+def wormhole_chronology_diagnostic(wormhole: Wormhole) -> Dict[str, object]:
+    """Detailed chronology diagnostic using Wormhole's own time-shift logic."""
+    possible, analysis = wormhole.chronology_violation_possible()
+    return {
+        "wormhole_id": wormhole.wormhole_id,
+        "throat_radius_m": wormhole.metric_parameters.get("throat_radius_m"),
+        "mouth_separation_m": wormhole.mouth_separation_m,
+        "time_shift_s": wormhole.time_shift_s,
+        "traversal_duration_s": wormhole.traversal_duration_s,
+        "chronology_violation_possible": possible,
+        "analysis": analysis,
+        "provenance": Provenance.HYPOTHETICAL,
     }
