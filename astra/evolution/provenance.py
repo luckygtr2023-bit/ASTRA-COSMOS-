@@ -1,42 +1,29 @@
-"""ASTRA Evolution — provenance and quantitative typing.
+"""ASTRA Evolution — provenance and quantitative typing (Phase 22 migrated).
 
-This module defines the provenance taxonomy required by Phase 21 and a
-``Quantity`` value-object that carries value, unit, provenance, uncertainty
-and model identity together.  It is intentionally independent of
-``astra.celestial.provenance`` — that module models catalog observations
-(``REAL_DATA`` / ``DERIVED_DATA`` / ``SIMULATED_DATA`` /
-``THEORETICAL_MODEL`` / ``SPECULATIVE_MODEL``) while evolution distinguishes
-``THEORETICAL`` / ``HYPOTHETICAL`` / ``SPECULATIVE`` as separate far-future
-regimes per §2.39.  A conversion helper is provided for interop.
+This module now re-exports the CANONICAL :class:`astra.scientific.classification.Classification`
+as ``Provenance`` for backward compatibility.  The single source of truth is
+``astra.scientific``; this file exists only as a thin shim so that existing
+``from astra.evolution.provenance import Provenance`` imports continue to work
+without creating a third parallel enum.
+
+Canonical taxonomy (six categories, ordered by epistemic strength):
+    REAL_DATA < DERIVED_DATA < SIMULATED_DATA < THEORETICAL < HYPOTHETICAL < SPECULATIVE
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from enum import Enum
 from typing import Optional
 
 from .errors import EvolutionNumericalError
 
+# Canonical import — single source of truth
+from astra.scientific.classification import Classification as Provenance
+from astra.scientific.classification import Classification
 
-class Provenance(str, Enum):
-    """Scientific-provenance classification for every evolutionary output.
-
-    - REAL_DATA: direct observation / catalog value.
-    - DERIVED_DATA: deterministic derivation from REAL_DATA.
-    - SIMULATED_DATA: output of a simulation with real input boundaries.
-    - THEORETICAL: prediction of a well-established theoretical model.
-    - HYPOTHETICAL: prediction of a plausible but unconfirmed model.
-    - SPECULATIVE: far-future extrapolation beyond validated regimes.
-    """
-
-    REAL_DATA = "REAL_DATA"
-    DERIVED_DATA = "DERIVED_DATA"
-    SIMULATED_DATA = "SIMULATED_DATA"
-    THEORETICAL = "THEORETICAL"
-    HYPOTHETICAL = "HYPOTHETICAL"
-    SPECULATIVE = "SPECULATIVE"
+# Re-export for callers that expect `astra.evolution.provenance.Classification`
+__all__ = ["Provenance", "Classification", "Quantity"]
 
 
 def _finite(name: str, v: float) -> float:
@@ -48,12 +35,8 @@ def _finite(name: str, v: float) -> float:
     return fv
 
 
-def _map_to_data_provenance(p: Provenance):
-    """Best-effort mapping to :class:`astra.celestial.provenance.DataProvenance`.
-
-    Used only for interop with celestial property blocks; the mapping is
-    documented and lossy (HYPOTHETICAL → SPECULATIVE_MODEL).
-    """
+def _map_to_data_provenance(p: Provenance):  # type: ignore[valid-type]
+    """Best-effort mapping to :class:`astra.celestial.provenance.DataProvenance`."""
     try:
         from astra.celestial.provenance import DataProvenance
     except ImportError:
@@ -71,20 +54,11 @@ def _map_to_data_provenance(p: Provenance):
 
 @dataclass(frozen=True)
 class Quantity:
-    """A tracked physical quantity: value + unit + provenance + optional uncertainty.
-
-    Attributes:
-        value: numeric value in the declared unit.
-        unit: free-form unit label (e.g. ``"Msun"``, ``"Mpc"``, ``"km/s"``).
-        provenance: classification per :class:`Provenance`.
-        uncertainty: 1-sigma uncertainty in the same unit, if known.
-        model_id: identifier of the model that produced this quantity.
-        note: optional human-readable note (e.g. assumption reference).
-    """
+    """A tracked physical quantity: value + unit + provenance + optional uncertainty."""
 
     value: float
     unit: str
-    provenance: Provenance
+    provenance: Provenance  # type: ignore[valid-type]
     uncertainty: Optional[float] = None
     model_id: Optional[str] = None
     note: Optional[str] = None
@@ -94,7 +68,7 @@ class Quantity:
         if not isinstance(self.unit, str) or not self.unit:
             raise EvolutionNumericalError("unit must be a non-empty string")
         if not isinstance(self.provenance, Provenance):
-            raise TypeError("provenance must be a Provenance member")
+            raise TypeError("provenance must be a Provenance/Classification member")
         if self.uncertainty is not None:
             _finite("uncertainty", self.uncertainty)
             if self.uncertainty < 0.0:
