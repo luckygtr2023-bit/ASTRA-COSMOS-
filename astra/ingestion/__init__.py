@@ -34,10 +34,15 @@ from astra.ingestion.exceptions import (
     TransportError,
 )
 from astra.ingestion.schema import (
+    ARCHIVE_SOURCES_REGISTRY,
     COLUMN_NAMES,
     DERIVED_COLUMNS,
     GAIA_DR3_COLUMNS,
     GAIA_DR3_SOURCE_METADATA,
+    JPL_HORIZONS_SOURCE_METADATA,
+    MODEL_INFERRED_COLUMNS,
+    NEXSCI_PS_SOURCE_METADATA,
+    SIMBAD_SOURCE_METADATA,
     GaiaColumn,
     ROW_DATA_CLASSIFICATION,
 )
@@ -63,7 +68,22 @@ from astra.ingestion.database import (
     ensure_schema,
     get_source,
     insert_batch,
+    register_all_archive_sources,
     register_source,
+    seed_pipeline_queries,
+)
+from astra.ingestion.archive_queries import (
+    EXOPLANET_ARCHIVE_SYNC_URL,
+    GAIA_SYNC_URL,
+    JPL_HORIZONS_API_URL,
+    JPL_LOOKUP_API_URL,
+    PIPELINE_QUERIES,
+    SIMBAD_SYNC_URL,
+    build_exoplanet_archive_query,
+    build_gaia_dr3_sample_query,
+    build_jpl_horizons_params,
+    build_jpl_horizons_url,
+    build_simbad_aliases_query,
 )
 from astra.ingestion.transport import (
     TAP_BASE_URL,
@@ -83,6 +103,9 @@ __all__ = [
     # schema
     "GaiaColumn", "GAIA_DR3_COLUMNS", "COLUMN_NAMES", "DERIVED_COLUMNS",
     "ROW_DATA_CLASSIFICATION", "GAIA_DR3_SOURCE_METADATA",
+    "MODEL_INFERRED_COLUMNS", "ARCHIVE_SOURCES_REGISTRY",
+    "NEXSCI_PS_SOURCE_METADATA", "SIMBAD_SOURCE_METADATA",
+    "JPL_HORIZONS_SOURCE_METADATA",
     # query
     "GaiaQuerySpec", "build_adql", "query_hash", "MIN_PARALLAX_MAS_2000LY",
     "SELECTION_RADIUS_LY", "SELECTION_RADIUS_PC", "LY_PER_PARSEC",
@@ -91,8 +114,15 @@ __all__ = [
     "GaiaRecord", "validate_row",
     # database
     "connect", "ensure_schema", "insert_batch", "IngestionManifest", "INSERT_SQL",
-    "register_source", "get_source",
+    "register_source", "register_all_archive_sources", "get_source",
+    "seed_pipeline_queries",
     "STATUS_RUNNING", "STATUS_COMPLETED", "STATUS_FAILED",
+    # archive query builders & stored production queries
+    "PIPELINE_QUERIES", "GAIA_SYNC_URL", "EXOPLANET_ARCHIVE_SYNC_URL",
+    "SIMBAD_SYNC_URL", "JPL_HORIZONS_API_URL", "JPL_LOOKUP_API_URL",
+    "build_gaia_dr3_sample_query", "build_exoplanet_archive_query",
+    "build_simbad_aliases_query", "build_jpl_horizons_params",
+    "build_jpl_horizons_url",
     # transport
     "TAP_BASE_URL", "TapTransport", "UrllibTapTransport", "UwsAsyncClient",
     # pipeline

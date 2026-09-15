@@ -14,6 +14,7 @@ import pytest
 from astra.ingestion import (
     COLUMN_NAMES,
     DERIVED_COLUMNS,
+    MODEL_INFERRED_COLUMNS,
     TAP_BASE_URL,
     GaiaDR3IngestionPipeline,
     connect,
@@ -132,9 +133,13 @@ class TestRepositoryHygiene:
     def test_tap_endpoint_documented(self):
         assert TAP_BASE_URL == "https://gea.esac.esa.int/tap-server/tap"
 
-    def test_derived_columns_never_marked_real(self):
-        for column in DERIVED_COLUMNS:
+    def test_model_inferred_qualifier_covers_only_gspphot(self):
+        # Archive provenance: gspphot columns are REAL_DATA catalog fields
+        # carrying the model-inferred scientific qualifier.
+        for column in MODEL_INFERRED_COLUMNS:
             assert column.endswith("_gspphot")
+        assert set(MODEL_INFERRED_COLUMNS) <= set(COLUMN_NAMES)
+        assert DERIVED_COLUMNS == ()
 
 
 class TestProvenanceEndToEnd:
@@ -164,7 +169,7 @@ class TestProvenanceEndToEnd:
             "ag_gspphot FROM stars_astrometry WHERE source_id = '3101'"
         ).fetchone()
         conn.close()
-        assert all(stored[c] is None for c in DERIVED_COLUMNS)
+        assert all(stored[c] is None for c in MODEL_INFERRED_COLUMNS)
 
     def test_manifest_counts_reconcile_with_payload(self, tmp_path):
         rows = [make_row(3200 + i) for i in range(10)]

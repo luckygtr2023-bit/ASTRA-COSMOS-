@@ -13,6 +13,7 @@ from astra.ingestion import (
     SELECTION_RADIUS_LY,
     SELECTION_RADIUS_PC,
     DERIVED_COLUMNS,
+    MODEL_INFERRED_COLUMNS,
     GaiaQuerySpec,
     build_adql,
     query_hash,
@@ -129,13 +130,17 @@ class TestSpecValidation:
         with pytest.raises(IngestionContractError):
             GaiaQuerySpec(columns=())
 
-    def test_derived_columns_are_exactly_gspphot(self):
-        assert DERIVED_COLUMNS == (
+    def test_derived_columns_none_model_inferred_exact(self):
+        # Master archive: DERIVED_DATA = computed BY ASTRA (canonical
+        # registry), so stars_astrometry has no ASTRA-derived columns; the
+        # GSP-Phot columns are REAL_DATA with the model-inferred qualifier.
+        assert DERIVED_COLUMNS == ()
+        assert MODEL_INFERRED_COLUMNS == (
             "teff_gspphot",
             "logg_gspphot",
             "mh_gspphot",
             "distance_gspphot",
             "ag_gspphot",
         )
-        real = [c for c in COLUMN_NAMES if c not in DERIVED_COLUMNS]
-        assert len(real) + len(DERIVED_COLUMNS) == 26
+        real = [c for c in COLUMN_NAMES if c not in MODEL_INFERRED_COLUMNS]
+        assert len(real) + len(MODEL_INFERRED_COLUMNS) == 26
