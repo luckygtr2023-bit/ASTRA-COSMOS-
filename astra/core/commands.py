@@ -62,8 +62,9 @@ class Command:
 
     def to_serializable(self) -> dict:
         """Serialize command to a dictionary for persistence."""
+        id_val = self.id.value if isinstance(self.id, CommandId) else str(self.id)
         return {
-            "id": str(self.id),
+            "id": id_val,
             "name": self.name,
             "tick": self.tick,
             "sequence": self.sequence,
@@ -76,8 +77,22 @@ class Command:
     @classmethod
     def from_serializable(cls, data: dict) -> "Command":
         """Deserialize command from a dictionary."""
+        raw_id = data["id"]
+        if isinstance(raw_id, str) and raw_id.startswith("CommandId("):
+            import re
+
+            try:
+                m = re.search(r"cmd_[0-9_]+", raw_id)
+                if m:
+                    raw_id = m.group(0)
+                else:
+                    m2 = re.search(r"value='([^']+)'", raw_id)
+                    if m2:
+                        raw_id = m2.group(1)
+            except Exception:
+                pass
         cmd = cls(
-            id=CommandId(data["id"]),
+            id=CommandId(raw_id) if not isinstance(raw_id, CommandId) else raw_id,
             name=data["name"],
             tick=data["tick"],
             sequence=data["sequence"],

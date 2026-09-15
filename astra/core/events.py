@@ -73,8 +73,10 @@ class Event:
 
     def to_serializable(self) -> dict:
         """Serialize event to a dictionary for persistence."""
+        # Use deterministic value string, not repr
+        id_val = self.id.value if isinstance(self.id, EventId) else str(self.id)
         return {
-            "id": str(self.id),
+            "id": id_val,
             "name": self.name,
             "tick": self.tick,
             "sequence": self.sequence,
@@ -86,8 +88,26 @@ class Event:
     @classmethod
     def from_serializable(cls, data: dict) -> "Event":
         """Deserialize event from a dictionary."""
+        raw_id = data["id"]
+        # Back-compat: handle previously persisted double-wrapped str(EventId)
+        if isinstance(raw_id, str) and raw_id.startswith("EventId("):
+            # Extract inner value e.g. EventId(value='evt_...')
+            try:
+                # crude extraction: find first 'evt_' or 'cmd_' etc.
+                import re
+
+                m = re.search(r"evt_[0-9_]+|cmd_[0-9_]+|entity_[0-9_]+", raw_id)
+                if m:
+                    raw_id = m.group(0)
+                else:
+                    # fallback: try to parse value='...'
+                    m2 = re.search(r"value='([^']+)'", raw_id)
+                    if m2:
+                        raw_id = m2.group(1)
+            except Exception:
+                pass
         return cls(
-            id=EventId(data["id"]),
+            id=EventId(raw_id) if not isinstance(raw_id, EventId) else raw_id,
             name=data["name"],
             tick=data["tick"],
             sequence=data["sequence"],
