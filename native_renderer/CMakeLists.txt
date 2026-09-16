@@ -60,39 +60,7 @@ endif()
 
 # Core library: astra_renderer
 file(GLOB_RECURSE RENDERER_SOURCES
-    src/rhi/*.cpp
-    src/gpu/*.cpp
-    src/scene/*.cpp
-    src/astronomy/*/*.cpp
-    src/terrain/*.cpp
-    src/atmosphere/*.cpp
-    src/ocean/*.cpp
-    src/volumetrics/*.cpp
-    src/particles/*.cpp
-    src/black_hole/*.cpp
-    src/relativity/*.cpp
-    src/spacetime/*.cpp
-    src/vfx/*.cpp
-    src/lighting/*.cpp
-    src/postprocess/*.cpp
-    src/camera/*.cpp
-    src/streaming/*.cpp
-    src/lod/*.cpp
-    src/culling/*.cpp
-    src/materials/*.cpp
-    src/textures/*.cpp
-    src/quality/*.cpp
-    src/diagnostics/*.cpp
-    src/resources/*.cpp
-    src/audio/*.cpp
-    src/audio/*/*.cpp
-    src/mcp/*.cpp
-    src/rt/*.cpp
-    src/mesh_shader/*.cpp
-    src/destruction/*.cpp
-    src/materials8k/*.cpp
-    src/debug/*.cpp
-    src/profiling/*.cpp
+    src/*.cpp
 )
 
 add_library(astra_renderer STATIC ${RENDERER_SOURCES})

@@ -7,7 +7,7 @@
 
 namespace astra::quality {
 
-enum class Tier { ULTRA, HIGH, MEDIUM, LOW, SAFE };
+enum class Tier { CINEMATIC, ULTRA, HIGH, MEDIUM, LOW, SAFE };
 
 struct TierDesc {
     Tier tier = Tier::HIGH;
@@ -29,7 +29,9 @@ inline TierDesc detect_tier(const rhi::DeviceInfo& info, bool headless) {
     if (headless) {
         d.tier = Tier::SAFE; d.name="SAFE (headless)"; d.shadow_atlas=1024; d.max_lights=512; d.volumetric_slices=16; d.star_count=2048; d.max_steps_bh=64; d.height_scale=100; d.hdr=false; d.bindless=false; return d;
     }
-    if (info.vram_mb >= 12000 && info.features.descriptorIndexing) {
+    if (info.vram_mb >= 20000 && info.features.descriptorIndexing) {
+        d.tier=Tier::CINEMATIC; d.name="CINEMATIC"; d.shadow_atlas=8192; d.volumetric_slices=256; d.star_count=50000; d.max_steps_bh=512; d.height_scale=1000; d.hdr=true; d.bindless=true;
+    } else if (info.vram_mb >= 12000 && info.features.descriptorIndexing) {
         d.tier=Tier::ULTRA; d.name="ULTRA"; d.shadow_atlas=8192; d.volumetric_slices=192; d.star_count=20000; d.max_steps_bh=256; d.height_scale=800;
     } else if (info.vram_mb >= 8000) {
         d.tier=Tier::HIGH; d.name="HIGH"; d.shadow_atlas=4096; d.volumetric_slices=64; d.star_count=10000; d.max_steps_bh=128;

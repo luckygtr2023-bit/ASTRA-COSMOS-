@@ -10,6 +10,15 @@
 #include "mesh_shader/virtual_geo.h"
 #include "destruction/destruction.h"
 #include "materials8k/materials8k.h"
+#include "planetary/planetary_lod.h"
+#include "starfield/starfield.h"
+#include "rings/ring_renderer.h"
+#include "clusters/cluster_renderer.h"
+#include "cosmic/cosmic_structure.h"
+#include "observer/observer.h"
+#include "extreme/black_hole_physics.h"
+#include "extreme/relativistic.h"
+#include "plasma_ext/plasma_magnetosphere.h"
 #include <cstdio>
 #include <vector>
 #include <string>
@@ -66,7 +75,13 @@ int main(int argc, char** argv){
         "native_renderer/shaders/vfx/impact_spark.comp",
         "native_renderer/shaders/compute/instance_prepare.comp",
         "native_renderer/shaders/compute/culling.comp",
-        "native_renderer/shaders/postprocess/tonemap_bloom.comp"
+        "native_renderer/shaders/postprocess/tonemap_bloom.comp",
+        "native_renderer/shaders/wormhole/white_hole.frag",
+        "native_renderer/shaders/plasma/magnetosphere.frag",
+        "native_renderer/shaders/plasma/jet.frag",
+        "native_renderer/shaders/rings/ring.frag",
+        "native_renderer/shaders/spacetime/tidal_field.frag",
+        "native_renderer/shaders/clusters/cluster.frag"
     };
     for(auto* p: shaders){
         auto mod = rhi.shaders().compile({p, "main", std::string(p).find(".comp")!=std::string::npos});
@@ -148,7 +163,36 @@ int main(int argc, char** argv){
         std::printf("[Destruction] rbd=%d fragments=%u preserved=%s\n", dest.rbd_enabled, dest.max_fragments, astra::destruction::scientific_state_preserved().c_str());
         std::printf("[Materials8K] res=%u tile=%u need8k=%d budget=%u\n", ktx.max_res, ktx.tile, needs_8k(astra::materials8k::Tier::CINEMATIC), astra::materials8k::streaming_budget(info.vram_mb));
     }
+    // -----------------------------------------------------------------
+    // Phase 2 + 3 — Astronomical + Extreme Physics demo
+    // -----------------------------------------------------------------
+    {
+        astra::planetary::PlanetaryLOD lod;
+        astra::planetary::PlanetaryParams pp; pp.radius_m=6371000; pp.height_scale=400;
+        auto tiles = lod.select_tiles({0,0,0}, {0,0,0}, pp.radius_m, 60.f, 1080);
+        std::printf("[PlanetaryLOD] tiles %zu error %.2f crack_free %s scientific %s\n", tiles.size(), tiles.empty()?0:tiles[0].error, lod.crack_free_note().c_str(), pp.scientific_status.c_str());
+        astra::starfield::StarLOD sl = astra::starfield::lod_for_distance(1e12, 7e8);
+        std::printf("[Starfield] LOD for 1e12m %d (POINT 0) budget %u\n", (int)sl, astra::starfield::streaming_budget(info.vram_mb));
+        float rd = astra::rings::ring_density(0.46f);
+        std::printf("[Rings] density at Cassini gap 0.46 %.2f gaps %d\n", rd, 1);
+        auto cluster = astra::clusters::generate_cluster(0xA573, 10, {1e45,5,0.1});
+        std::printf("[Cluster] galaxies %zu deterministic seed 0xA573 type %s\n", cluster.size(), cluster[0].type.c_str());
+        double dens[4]; astra::cosmic::generate_filament({1e-27,50}, dens, 4);
+        std::printf("[CosmicStructure] filament density %.2e\n", dens[0]);
+        astra::observer::ObserverState obs; obs.pos={1e11,0,0}; obs.mode=astra::observer::Mode::INTERPLANETARY; obs.tick=42;
+        std::printf("[Observer] mode %d frame_independent %d tick %llu\n", (int)obs.mode, astra::observer::is_scientific_frame_independent(obs)?1:0, (unsigned long long)obs.tick);
+        astra::extreme::SchwarzschildParams bh{1.989e31,29540,0};
+        std::printf("[BlackHolePhysics] photon %.1f shadow %.1f isco %.1f deflection %.4f theoretical\n", astra::extreme::photon_sphere(bh.rs_m), astra::extreme::shadow_radius(bh.rs_m), astra::extreme::isco(bh.rs_m,0), astra::extreme::deflection_angle(bh.rs_m, 1e5));
+        double tidal = astra::relativity::spacetime_curvature(bh.rs_m, bh.rs_m*5);
+        auto tt = astra::relativity::tidal_field(bh.rs_m, bh.rs_m*5);
+        std::printf("[Relativity] curvature %.2e tidal %.2e label %s\n", tidal, tt.xx, tt.label.c_str());
+        std::printf("[Wormhole/WhiteHole/Warp] theoretical/speculative labeled status THEORETICAL\n");
+        double plasma_out[4]; astra::plasma::emit_plasma({1e6,100,10}, plasma_out, 4);
+        std::printf("[Plasma] magnetosphere jet tracers %.2f\n", plasma_out[0]);
+        std::printf("[ScientificLabel] planet REAL atmosphere SIMULATED wormhole THEORETICAL warp SPECULATIVE\n");
+    }
     audio.shutdown();
+
 
     // 11. Clean shutdown
     rhi.resources().destroy_buffer(staging);
