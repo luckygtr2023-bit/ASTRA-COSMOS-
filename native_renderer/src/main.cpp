@@ -1,3 +1,5 @@
+// Copyright © 2026 Lucky Kumar — ASTRA COSMOS
+// Native Renderer Production Entry Point — astra_native
 #include "rhi/vulkan_rhi.h"
 #include "scene/floating_origin.h"
 #include "scene/scene.h"

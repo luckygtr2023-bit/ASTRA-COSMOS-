@@ -1,3 +1,4 @@
+# Copyright © 2026 Lucky Kumar — ASTRA COSMOS
 """Centralized Supabase configuration — single source, no hard-coding scattered.
 
 Supports:

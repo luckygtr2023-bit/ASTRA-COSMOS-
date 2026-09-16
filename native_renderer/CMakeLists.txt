@@ -85,7 +85,32 @@ target_compile_definitions(astra_renderer PUBLIC
     $<$<BOOL:${ASTRA_ENABLE_VALIDATION}>:ASTRA_VALIDATION>
 )
 
-# Main executable — headless + windowed
+# Launcher — Windows EXE primary user-facing (also builds on Linux as ASTRA COSMOS.exe ELF for validation)
+option(ASTRA_BUILD_LAUNCHER "Build Windows launcher ASTRA COSMOS.exe" ON)
+if(ASTRA_BUILD_LAUNCHER)
+    add_executable(astra_launcher launcher/launcher.cpp)
+    # Output name with space — Windows launcher: "ASTRA COSMOS.exe"
+    set_target_properties(astra_launcher PROPERTIES
+        OUTPUT_NAME "ASTRA COSMOS"
+        SUFFIX ".exe"
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+    )
+    find_package(Threads REQUIRED)
+    target_link_libraries(astra_launcher PRIVATE Threads::Threads)
+    # On Windows, avoid console? Keep console for logs (stdout/stderr preserved)
+    if(MSVC)
+        target_compile_options(astra_launcher PRIVATE /O2 /GL)
+        set_target_properties(astra_launcher PROPERTIES LINK_FLAGS "/LTCG /SUBSYSTEM:CONSOLE")
+    else()
+        target_compile_options(astra_launcher PRIVATE -O3)
+    endif()
+    # Install launcher to release root
+    install(TARGETS astra_launcher RUNTIME DESTINATION .)
+    message(STATUS "Launcher: ASTRA COSMOS.exe from launcher/launcher.cpp")
+endif()
+
+# Main executable — headless + windowed (production entry point, invoked by launcher)
 add_executable(astra_native
     src/main.cpp
 )

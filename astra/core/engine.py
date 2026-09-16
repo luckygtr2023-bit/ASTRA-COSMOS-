@@ -1,3 +1,5 @@
+# Copyright © 2026 Lucky Kumar — ASTRA COSMOS
+# ASTRA Core Engine — Scientific Authority
 """ASTRA Core engine - main simulation orchestrator."""
 
 from dataclasses import dataclass, field
