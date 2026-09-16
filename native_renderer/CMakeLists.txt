@@ -38,6 +38,12 @@ if(EXISTS "/home/user/imgui/imgui.h")
     set(IMGUI_DIR "/home/user/imgui")
 endif()
 
+# Miniaudio — header-only MIT single header
+if(EXISTS "/home/user/miniaudio/miniaudio.h")
+    set(MINIAUDIO_INCLUDE_DIR "/home/user/miniaudio")
+    message(STATUS "miniaudio: ${MINIAUDIO_INCLUDE_DIR}")
+endif()
+
 # GLSLANG — prefer system, else /home/user/glslang
 if(EXISTS "/home/user/glslang/CMakeLists.txt")
     set(GLSLANG_DIR "/home/user/glslang")
@@ -78,17 +84,27 @@ file(GLOB_RECURSE RENDERER_SOURCES
     src/quality/*.cpp
     src/diagnostics/*.cpp
     src/resources/*.cpp
+    src/audio/*.cpp
+    src/audio/*/*.cpp
+    src/mcp/*.cpp
+    src/rt/*.cpp
+    src/mesh_shader/*.cpp
+    src/destruction/*.cpp
+    src/materials8k/*.cpp
     src/debug/*.cpp
     src/profiling/*.cpp
 )
 
 add_library(astra_renderer STATIC ${RENDERER_SOURCES})
+find_package(Threads REQUIRED)
+
 target_include_directories(astra_renderer PUBLIC
     src
     src/rhi
     ${Vulkan_INCLUDE_DIR}
     ${ENTT_INCLUDE_DIR}
     ${IMGUI_DIR}
+    ${MINIAUDIO_INCLUDE_DIR}
 )
 
 if(GLFW_FOUND)
@@ -105,7 +121,9 @@ target_compile_definitions(astra_renderer PUBLIC
 add_executable(astra_native
     src/main.cpp
 )
-target_link_libraries(astra_native PRIVATE astra_renderer)
+target_link_libraries(astra_native PRIVATE astra_renderer Threads::Threads)
+# Also link renderer threads
+target_link_libraries(astra_renderer PUBLIC Threads::Threads)
 
 # Tools
 if(ASTRA_BUILD_TOOLS)
