@@ -1,0 +1,11 @@
+[gd_resource type="ParticleProcessMaterial" format=3 uid="uid://c0sm0s_explosion"]
+[resource]
+emission_shape = 1
+emission_sphere_radius = 1.5
+gravity = Vector3(0, -1.2, 0)
+initial_velocity_min = 8.0
+initial_velocity_max = 22.0
+scale_min = 0.8
+scale_max = 2.2
+color = Color(1.0, 0.65, 0.25, 1.0)
+lifetime_randomness = 0.5

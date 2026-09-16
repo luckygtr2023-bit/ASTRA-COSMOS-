@@ -1,0 +1,18 @@
+[gd_resource type="Environment" format=3 uid="uid://astra_default_env"]
+[resource]
+background_mode = 2
+background_color = Color(0.02, 0.02, 0.08, 1)
+ambient_light_source = 1
+ambient_light_color = Color(0.08, 0.09, 0.12, 1)
+ambient_light_energy = 0.6
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.004
+volumetric_fog_albedo = Color(0.6, 0.65, 0.75, 1)
+glow_enabled = true
+glow_intensity = 0.35
+glow_strength = 0.8
+glow_bloom = 0.08
+tonemap_mode = 2
+tonemap_exposure = 1.1
+adjustment_enabled = true
+adjustment_brightness = 1.02
