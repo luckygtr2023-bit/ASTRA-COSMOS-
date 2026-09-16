@@ -1,0 +1,11 @@
+#version 450
+// FSR2 scaffolding — fallback to native if unsupported, do not claim implementation if scaffolding
+layout(local_size_x=8, local_size_y=8) in;
+layout(set=0,binding=0) uniform sampler2D inputColor;
+layout(set=0,binding=1, rgba8) uniform image2D outputColor;
+void main(){
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    vec4 c = texelFetch(inputColor, coord, 0);
+    // fallback: just copy, real FSR2 would be dispatch via FidelityFX
+    imageStore(outputColor, coord, c);
+}

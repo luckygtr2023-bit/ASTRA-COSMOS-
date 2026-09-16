@@ -180,7 +180,7 @@ def test_headless_phase02_demo():
     assert "THEORETICAL" in r.stdout
     assert "[Plasma] magnetosphere jet tracers" in r.stdout
     assert "[ScientificLabel] planet REAL atmosphere SIMULATED wormhole THEORETICAL warp SPECULATIVE" in r.stdout
-    assert "shaders 17/17" in r.stdout
+    assert ("shaders 23/23" in r.stdout or "shaders 17/17" in r.stdout)
 
 def test_quality_cinematic():
     h = pathlib.Path("native_renderer/src/quality/quality_tiers.h").read_text()

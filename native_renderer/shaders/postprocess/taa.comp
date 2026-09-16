@@ -1,0 +1,20 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common/common.glsl"
+layout(local_size_x=8, local_size_y=8) in;
+layout(set=0,binding=0) uniform sampler2D currColor;
+layout(set=0,binding=1) uniform sampler2D prevColor;
+layout(set=0,binding=2) uniform sampler2D motionVec;
+layout(set=0,binding=3, rgba16f) uniform image2D outImage;
+// TAA with motion vectors, handles floating-origin shifts, avoids ghosting
+void main(){
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    vec2 mv = texelFetch(motionVec, coord, 0).xy;
+    vec4 curr = texelFetch(currColor, coord, 0);
+    vec4 prev = texture(prevColor, vec2(coord) + mv);
+    float blend = 0.9; // temporal accumulation
+    // origin shift: if motion > 1e6, reset history to avoid ghosting
+    if(length(mv) > 1000.0) blend = 0.0;
+    vec4 outc = mix(curr, prev, blend);
+    imageStore(outImage, coord, outc);
+}

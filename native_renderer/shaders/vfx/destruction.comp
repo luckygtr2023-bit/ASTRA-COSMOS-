@@ -1,0 +1,16 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common/common.glsl"
+layout(local_size_x=64) in;
+layout(std430, binding=0) buffer Debris { vec4 pos_vel[]; };
+layout(push_constant) uniform Push { float energy; float dt; uint hasAtmosphere; } pc;
+// destruction: debris, dust, thermal glow, ejecta, atmospheric interaction only if hasAtmosphere
+void main(){
+    uint id = gl_GlobalInvocationID.x;
+    vec4 pv = pos_vel[id];
+    // thermal glow based on energy
+    float glow = pc.energy / 1e9;
+    // smoke only if atmosphere
+    float smoke = (pc.hasAtmosphere==1) ? 0.02 : 0.0;
+    pos_vel[id] = vec4(pv.xyz + vec3(glow*0.01), pv.w + smoke);
+}
