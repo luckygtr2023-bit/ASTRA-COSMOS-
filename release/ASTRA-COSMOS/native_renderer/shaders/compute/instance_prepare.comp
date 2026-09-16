@@ -1,0 +1,27 @@
+#version 450
+// Instance Prepare — 10k stars GPU culling + floating-origin, local_size 256, AAA indirect draw prep
+layout(local_size_x=256) in;
+layout(set=0,binding=0, std430) restrict buffer Positions { vec4 pos_scale[]; } positions; // xyz world-relative, w scale/lod
+layout(set=0,binding=1, std430) restrict readonly buffer Inputs { vec4 in_pos[]; } inputs; // xyz double world
+layout(set=0,binding=2) uniform Params { vec3 origin_offset; float count; vec3 cam_pos; float cull_dist; } params;
+layout(set=0,binding=3, std430) buffer Visible { uint visible_count; uint indices[]; } visible;
+
+shared uint shared_visible;
+
+void main(){
+    uint id = gl_GlobalInvocationID.x;
+    if(id==0) shared_visible=0;
+    barrier();
+    if(id >= uint(params.count)) return;
+    vec3 p = inputs.in_pos[id].xyz - params.origin_offset;
+    float lod = length(p - params.cam_pos) > params.cull_dist ? 1.0 : 0.0;
+    // Frustum culling stub: distance >5000 culled at LOW
+    bool culled = length(p) > 50000.0;
+    if(!culled){
+        uint out_idx = atomicAdd(visible.visible_count, 1);
+        visible.indices[out_idx] = id;
+        positions.pos_scale[id] = vec4(p, mix(1.0,0.4,lod));
+    } else {
+        positions.pos_scale[id] = vec4(p, 0.0); // invisible scale 0
+    }
+}

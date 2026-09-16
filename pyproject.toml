@@ -23,12 +23,14 @@ classifiers = [
 ]
 keywords = ["simulation", "game-engine", "deterministic", "ecs"]
 requires-python = ">=3.9"
-dependencies = []
+dependencies = ["supabase>=2.0", "python-dotenv>=1.0", "httpx>=0.24"]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
+    "httpx",
+    "supabase",
 ]
 
 [project.urls]

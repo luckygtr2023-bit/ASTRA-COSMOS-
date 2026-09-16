@@ -1,0 +1,50 @@
+{
+  "generated": "2026-09-16T19:17:14.952Z",
+  "assets": [
+    {
+      "path": "visualization/assets/README.md",
+      "size": 491,
+      "mtime": 1789583090252.6233
+    },
+    {
+      "path": "visualization/assets/luts/README.md",
+      "size": 152,
+      "mtime": 1789583108060.7134
+    },
+    {
+      "path": "visualization/assets/manifest.json",
+      "size": 1178,
+      "mtime": 1789584721718.5852
+    },
+    {
+      "path": "visualization/assets/noise/README.md",
+      "size": 230,
+      "mtime": 1789583108056.7134
+    },
+    {
+      "path": "visualization/assets/particles/README.md",
+      "size": 168,
+      "mtime": 1789583108060.7134
+    },
+    {
+      "path": "visualization/assets/planets/README.md",
+      "size": 187,
+      "mtime": 1789583108056.7134
+    },
+    {
+      "path": "visualization/assets/planets/earth_like_albedo.ppm",
+      "size": 749662,
+      "mtime": 1789583112604.7363
+    },
+    {
+      "path": "visualization/assets/skyboxes/README.md",
+      "size": 257,
+      "mtime": 1789583108056.7134
+    },
+    {
+      "path": "visualization/assets/stars/star_temperature_lut.ppm",
+      "size": 47470,
+      "mtime": 1789584722010.5867
+    }
+  ]
+}

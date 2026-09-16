@@ -11,6 +11,7 @@ venv/
 .ENV
 .env
 .env.*
+!.env.example
 .env.local
 .coverage
 coverage/
@@ -28,6 +29,8 @@ build/
 .tests/
 test/
 tests/
+!tests/evolution/
+!tests/evolution/**
 
 # IDE
 .vscode/
@@ -53,3 +56,8 @@ Thumbs.db
 *.7z
 *.rar
 ```
+# But keep native_renderer/tests
+!native_renderer/tests/
+!native_renderer/tests/**
+ignore pyc
+native_renderer/tests/__pycache__/

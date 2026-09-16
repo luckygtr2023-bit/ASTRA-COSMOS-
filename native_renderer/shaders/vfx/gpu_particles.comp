@@ -1,0 +1,23 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common/common.glsl"
+layout(local_size_x=64) in;
+struct Particle { vec4 pos_life; vec4 vel_size; vec4 accel_temp; vec4 color_density; };
+layout(std430, binding=0) buffer Particles { Particle particles[]; };
+layout(std430, binding=1) buffer Indirect { uint count; uint instance; uint first; uint base; };
+layout(push_constant) uniform Push { float dt; uint seed; } pc;
+// deterministic turbulence via astra_hash, drag 0.02, lifetime management
+void main(){
+    uint id = gl_GlobalInvocationID.x;
+    if(id >= 1000000) return;
+    Particle p = particles[id];
+    // hash deterministic
+    float h = astra_hash(vec2(float(id), float(pc.seed)));
+    vec3 turb = vec3(h, fract(h*1.3), fract(h*2.1))*0.1 - 0.05;
+    p.vel_size.xyz += (p.accel_temp.xyz + turb) * pc.dt;
+    p.vel_size.xyz *= (1.0 - 0.02); // drag
+    p.pos_life.xyz += p.vel_size.xyz * pc.dt;
+    p.pos_life.w -= pc.dt;
+    if(p.pos_life.w < 0.0) p.pos_life.w = 5.0; // recycle deterministically
+    particles[id] = p;
+}

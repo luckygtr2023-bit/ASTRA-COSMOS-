@@ -1,0 +1,8 @@
+[gd_resource type="ShaderMaterial" format=3 uid="uid://astra_planet_mat"]
+
+[ext_resource type="Shader" path="res://shaders/terrain/heightmap_terrain.gdshader" id="1_terrain"]
+
+[resource]
+shader = ExtResource("1_terrain")
+shader_parameter/height_scale = 400.0
+shader_parameter/slope_sharpness = 2.0

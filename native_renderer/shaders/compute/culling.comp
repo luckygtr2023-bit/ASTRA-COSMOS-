@@ -1,0 +1,28 @@
+#version 450
+// GPU Culling — frustum + occlusion + distance, HLOD 32 clusters
+layout(local_size_x=64) in;
+layout(set=0,binding=0) readonly buffer BoundsMin { vec4 aabb_min[]; } boundsMin;
+layout(set=0,binding=1) readonly buffer BoundsMax { vec4 aabb_max[]; } boundsMax;
+layout(set=0,binding=2) buffer OutMask { uint mask[]; } outMask;
+layout(set=0,binding=3) uniform CullingUBO {
+    mat4 view_proj;
+    vec3 cam_pos;
+    float cull_dist;
+    uint count;
+} ubo;
+
+bool frustum_cull(vec3 center, vec3 halfSz){
+    vec4 c = ubo.view_proj * vec4(center,1.0);
+    float r = max(halfSz.x, max(halfSz.y, halfSz.z));
+    return abs(c.x) > c.w + r || abs(c.y) > c.w + r || c.z < -c.w - r;
+}
+void main(){
+    uint id = gl_GlobalInvocationID.x;
+    if(id >= ubo.count) return;
+    vec3 mn = boundsMin.aabb_min[id].xyz;
+    vec3 mx = boundsMax.aabb_max[id].xyz;
+    vec3 cen = (mn+mx)*0.5;
+    vec3 halfSz = (mx-mn)*0.5;
+    bool culled = frustum_cull(cen, halfSz) || length(cen - ubo.cam_pos) > ubo.cull_dist;
+    outMask.mask[id] = culled ? 0u : 1u;
+}

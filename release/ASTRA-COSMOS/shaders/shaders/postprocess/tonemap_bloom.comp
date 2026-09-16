@@ -1,0 +1,24 @@
+#version 450
+// Tonemap Bloom — AgX/AgX-inspired + bloom 0.8, HDR, color management
+layout(local_size_x=8, local_size_y=8) in;
+layout(set=0,binding=0) uniform sampler2D hdrColor;
+layout(set=0,binding=1, rgba16f) uniform image2D ldrOut;
+layout(push_constant) uniform Push { float exposure; float bloom_strength; } pc;
+
+vec3 agx(vec3 x){
+    // approx AgX
+    x = pow(x, vec3(2.2));
+    x = (x * (0.15*x + 0.05) + 0.004) / (x*(0.15*x + 0.5)+0.06);
+    return pow(x, vec3(1.0/2.2));
+}
+void main(){
+    ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+    vec3 hdr = texelFetch(hdrColor, pix, 0).rgb * pc.exposure;
+    // bloom tap 3x3
+    vec3 bloom=vec3(0);
+    for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++) bloom+= texelFetch(hdrColor, pix+ivec2(x,y),0).rgb;
+    bloom/=9.0;
+    hdr += bloom*pc.bloom_strength;
+    vec3 ldr = agx(hdr);
+    imageStore(ldrOut, pix, vec4(ldr,1.0));
+}

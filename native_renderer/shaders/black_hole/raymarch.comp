@@ -1,0 +1,33 @@
+#version 450
+// BH Raymarch — Schwarzschild photon sphere 1.5 r_s, shadow 2.6 r_s, 64/128/256 steps
+layout(local_size_x=64) in;
+layout(set=0,binding=0) uniform Params { vec3 cam_pos; float rs; int max_steps; float ray_eps; vec3 bh_pos; float watermark; } p;
+layout(set=0,binding=1, rgba16f) uniform image2D outImage;
+// Simplified Schwarzschild deflection: alpha≈2r_s/b
+vec3 trace_ray(vec3 ro, vec3 rd){
+    vec3 pos=ro;
+    for(int i=0;i<p.max_steps;i++){
+        vec3 to_bh = p.bh_pos - pos;
+        float b = length(cross(to_bh, rd)); // impact param
+        float dist = length(to_bh);
+        if(dist < p.rs*1.5) return vec3(0); // captured photon sphere
+        if(dist < p.rs*2.6 && b < p.rs*2.6) return vec3(0.02); // shadow
+        // deflection
+        float alpha = 2.0*p.rs/max(b,0.001);
+        rd = normalize(rd + normalize(to_bh)*alpha*0.01);
+        pos += rd* p.ray_eps * (1.0 + dist*0.01);
+        if(length(pos - p.bh_pos) > 100.0) break;
+    }
+    return vec3(0.5+0.5*rd.y); // sky
+}
+void main(){
+    ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 sz = imageSize(outImage);
+    if(pix.x>=sz.x || pix.y>=sz.y) return;
+    vec2 uv = (vec2(pix)+0.5)/vec2(sz)*2.0-1.0;
+    vec3 ro = p.cam_pos;
+    vec3 rd = normalize(vec3(uv, -1.5));
+    vec3 col = trace_ray(ro, rd);
+    if(p.watermark>0.5) col = mix(col, vec3(0.8,0.1,0.1), 0.1); // watermark
+    imageStore(outImage, pix, vec4(col,1.0));
+}

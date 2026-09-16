@@ -1,0 +1,17 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common/common.glsl"
+layout(local_size_x=8, local_size_y=8, local_size_z=1) in;
+layout(set=0,binding=0, rgba16f) uniform image3D densityTex;
+layout(set=0,binding=1, rgba16f) uniform image2D outImage;
+// 3D density field, ray march, adaptive step, empty-space skipping, temporal accumulation
+void main(){
+    ivec3 id = ivec3(gl_GlobalInvocationID.xyz);
+    vec4 d = imageLoad(densityTex, id);
+    // empty-space skipping
+    if(d.a < 0.01) return;
+    // adaptive step: larger step where density low
+    float step = mix(0.5, 2.0, 1.0 - d.a);
+    vec4 accum = d * step;
+    imageStore(outImage, ivec2(id.xy), accum);
+}

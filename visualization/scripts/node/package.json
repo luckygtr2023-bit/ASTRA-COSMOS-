@@ -1,0 +1,12 @@
+{
+  "name": "astra-visualization-tools",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "ASTRA visualization tooling (manifest, bridge) — zero runtime deps",
+  "license": "MIT",
+  "scripts": {
+    "manifest": "node generate_manifest.js",
+    "bridge": "node ../javascript/bridge_adapter.js"
+  },
+  "dependencies": {}
+}

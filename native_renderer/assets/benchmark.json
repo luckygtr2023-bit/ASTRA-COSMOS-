@@ -1,0 +1,78 @@
+{
+  "name": "ASTRA Phase 01 — Native Foundation Benchmark",
+  "deterministic_seed": "0xA573",
+  "description": "Strongest Phase01 scene: max quality, stability, performance, scalability, fidelity. Deterministic, procedural, HDR, PBR, floating-origin at 1e26.",
+  "quality_tiers": {
+    "ULTRA": {"shadow_atlas":8192, "vol_slices":192, "stars":20000, "bh_steps":256, "height_scale":800, "max_lights":4096, "hdr":true},
+    "HIGH":  {"shadow_atlas":4096, "vol_slices":64,  "stars":10000, "bh_steps":128, "height_scale":400, "max_lights":4096, "hdr":true},
+    "MEDIUM":{"shadow_atlas":2048, "vol_slices":32,  "stars":5000,  "bh_steps":64,  "height_scale":200, "max_lights":2048, "hdr":true},
+    "LOW":   {"shadow_atlas":1024, "vol_slices":16,  "stars":2048,  "bh_steps":32,  "height_scale":100, "max_lights":1024, "hdr":false},
+    "SAFE":  {"shadow_atlas":1024, "vol_slices":16,  "stars":2048,  "bh_steps":32,  "height_scale":100, "max_lights":512,  "hdr":false}
+  },
+  "capability_detection": {
+    "vram_mb": "auto (DeviceInfo.vram_mb)",
+    "features": ["samplerAnisotropy","descriptorIndexing","rayTracing","meshShader","timelineSemaphore"],
+    "fallback": "SAFE headless mock if no Vulkan"
+  },
+  "scene": {
+    "scales": ["planet (2km)", "solar system (1e11)", "stellar neighborhood (1e16)", "galaxy (1e21)", "large-scale universe (1e26)"],
+    "floating_origin": {"stable_at": "5,0,0 even at 1e26", "method": "world_to_relative double->float", "test": "test_five_scales"},
+    "objects": [
+      {"kind":"STAR", "count":10000, "shader":"stars/procedural_starfield.frag", "lut":"star_temperature_lut.ppm 16x256 blackbody", "target_ms":0.6, "variants":["10k HIGH","20k ULTRA"]},
+      {"kind":"PLANET", "verts":2562, "height_scale":400, "shader":"terrain/heightmap_terrain.frag + terrain/heightmap_terrain.vert", "triplanar":"slope_sharpness 2", "virtual_texturing":"256KB tile 4MB/frame", "target_ms":1.2},
+      {"kind":"ATMOSPHERE", "rayleigh":4e-6, "mie":2.1e-5, "steps":16, "shader":"atmosphere/rayleigh_mie.frag", "hdr":"AgX", "target_ms":0.4},
+      {"kind":"TERRAIN", "procedural":"FastNoiseLite FBM astra_fbm", "height":400, "biomes":2, "shader":"terrain/heightmap_terrain.frag", "target_ms":1.2},
+      {"kind":"OCEAN", "gerstner_waves":4, "choppy":0.35, "shader":"ocean/gerstner_ocean.vert", "pbr":true, "target_ms":0.3},
+      {"kind":"CLOUDS", "slices":64, "volumetric":"FogVolume 30,10,30 density 0.02", "shader":"nebula/volumetric_nebula.frag", "target_ms":0.5},
+      {"kind":"NEBULA", "density":0.8, "slices":64, "fog":"0.004 albedo 0.6,0.65,0.75", "shader":"nebula/volumetric_nebula.frag", "target_ms":0.8},
+      {"kind":"GALAXY", "arms":2, "tightness":0.22, "density":500, "shader":"galaxy/spiral_galaxy.frag", "compute":"galaxy.comp", "target_ms":0.4},
+      {"kind":"BLACK_HOLE", "mass":"10M_sun rs0.3", "shadow":2.6, "photon":1.5, "steps":128, "accretion":"T~r^-3/4 ISCO 3r_s Doppler g^3", "shader":"black_hole/raymarch.comp + accretion_disk.frag", "target_ms":1.0},
+      {"kind":"LENSING", "alpha":"2rs/b", "shader":"lensing/gravitational_lensing.frag 1024", "einstein_ring":0.02, "target_ms":0.5},
+      {"kind":"WORMHOLE", "b0":2.0, "classification":"SPECULATIVE watermark 0.2", "shader":"wormhole/throat.frag", "target_ms":0.4},
+      {"kind":"SPACECRAFT", "hull_pbr":"clear-coat sheen HDR 16F", "shader":"spacecraft/hull_pbr (pbr.frag)", "target_ms":0.3},
+      {"kind":"ASTEROID_FIELD", "count":1024, "instanced":true, "lod":"HLOD 32 clusters", "shader":"compute/instance_prepare.comp local_size 256", "target_ms":0.5},
+      {"kind":"PARTICLES", "amount":256, "up_to":"1M compute", "shader":"vfx/impact_spark.comp local_size 64 RANDOM_SEED", "target_ms":0.5},
+      {"kind":"VOLUMETRICS", "slices":64, "fog":0.004, "shader":"nebula/volumetric_nebula.frag", "target_ms":0.8}
+    ]
+  },
+  "rendering": {
+    "architecture": "Forward+ clustered 4096 lights 16x9x24 grid",
+    "hdr": "16F HDR + exposure 1.1 + AgX tonemap + bloom 0.35 + DoF 1.25",
+    "materials": "PBR roughness/metallic clear-coat sheen normal_map emissive",
+    "lighting": "clustered 4096 omni+spot shadow atlas 8192 PSSM",
+    "compute": ["instance_prepare 256","culling 64","raymarch 64","tonemap 8x8"],
+    "indirect": "vkCmdDrawIndirect + visible_count atomicAdd",
+    "culling": "frustum+occlusion+distance HLOD 32",
+    "streaming": "4MB/frame 256KB tile async transfer",
+    "frame_graph": ["shadow","terrain","atmosphere","ocean","stars_indirect","galaxy_spiral","blackhole_raymarch","lensing","vfx","postprocess"],
+    "swapchain": "1920x1080 triple buffering HDR 16F vsync OFF",
+    "pipelines": "VkPipelineCache",
+    "descriptors": "bindless descriptor indexing where supported, fallback 1024 pool"
+  },
+  "camera": {
+    "modes": ["ORBITAL","FREE","SPACECRAFT","OBSERVATION","CINEMATIC","REPLAY"],
+    "features": ["dolly Path3D","crane","shake seed tick","TAA tick_lerp","motion blur 1.25x","DoF"],
+    "tick_sync": "sim_time_s + tick_dt lerp, not wall clock"
+  },
+  "diagnostics": {
+    "frame_timing": "cpu_ms gpu_ms fps 60 avg60",
+    "gpu_timing": "shadow/terrain/atmosphere/stars/galaxy/bh/lensing/vfx/postprocess per VkQueryPool",
+    "resource_stats": "draw_calls triangles dispatch vram 512/4096 buffer_count 3",
+    "shader_diagnostics": "compiled 11/11 cached, glslangValidator SPIR-V words",
+    "sync": "fences semaphores timeline",
+    "coord": "world_scale 1e11 error <1e-3 stable headless SAFE",
+    "tools": ["Tracy ZoneScopedN FrameMark","RenderDoc capture","VkValidation"]
+  },
+  "targets": {
+    "total_target_ms": 5.2,
+    "budget_ms": 16.6,
+    "goal": "60 fps at HIGH on RTX 4070, 30 fps at ULTRA"
+  },
+  "determinism": {
+    "seed": "0xA573",
+    "procedural": ["terrain FBM","star hash","galaxy spiral","nebula FBM","asteroid hash"],
+    "hash": "astra_hash fract(sin(dot)*43758.5453)"
+  },
+  "asset_strategy": "procedural > static, KTX2/basisu compression, 256KB tile streaming, 8K optional",
+  "scientific_authority": "ASTRA Engine double tick42 sim_time1234.5 → RenderState hash → NativeRenderer float relative → GPU. No visual modifies mass/position/velocity/time."
+}
