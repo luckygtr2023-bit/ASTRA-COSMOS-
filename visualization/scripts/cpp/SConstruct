@@ -1,0 +1,9 @@
+# SCons for AstraInstanceHelper GDExtension (Godot 4.4)
+# Prereq: godot-cpp @ 4.4, SCons 4+
+#   git clone --recursive https://github.com/godotengine/godot-cpp
+#   scons target=template_release
+env = SConscript("godot-cpp/SConstruct")
+env.Append(CPPPATH=["."])
+sources = Glob("*.cpp")
+library = env.SharedLibrary("bin/libastra_visualization{}{}".format(env["suffix"], env["SHLIBSUFFIX"]), source=sources)
+Default(library)

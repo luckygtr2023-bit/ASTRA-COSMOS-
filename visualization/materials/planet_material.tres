@@ -1,0 +1,4 @@
+[gd_resource type="ShaderMaterial" format=3 uid="uid://astra_planet_mat"]
+[resource]
+shader = ExtResource("1_celestial_star")
+shader_parameter/albedo_low = ExtResource("2_planet_albedo_low")

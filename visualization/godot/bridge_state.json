@@ -1,0 +1,12 @@
+{
+  "tick": 42,
+  "simulation_time_s": 1234.5,
+  "frame_id": "world",
+  "origin_offset": [0,0,0],
+  "objects": [
+    {"id": "star-1", "kind": "STAR", "position": [0,0,0], "classification": "SIMULATED_DATA", "temperature_k": 5778, "lod": 0},
+    {"id": "planet-1", "kind": "PLANET", "position": [1e8,0,0], "classification": "SIMULATED_DATA", "lod": 1},
+    {"id": "bh-1", "kind": "BLACK_HOLE", "position": [2e9,0,0], "classification": "THEORETICAL", "mass_kg": 1e31}
+  ],
+  "camera": {"mode": "orbital", "target": "planet-1"}
+}
