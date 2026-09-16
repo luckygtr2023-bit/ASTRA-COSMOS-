@@ -1,0 +1,21 @@
+{
+  "name": "ASTRA Visual Benchmark — AAA Level",
+  "deterministic_seed": "0xA573",
+  "quality": "HIGH",
+  "passes": [
+    {"name": "starfield", "count": 10000, "shader": "stars/procedural_starfield.frag", "target_ms": 0.6},
+    {"name": "planet", "lod": 2, "verts": 2562, "height_scale": 400, "shader": "terrain/heightmap_terrain.frag", "target_ms": 1.2},
+    {"name": "atmosphere", "rayleigh": 4e-6, "mie": 2.1e-5, "shader": "atmosphere/rayleigh_mie.frag", "target_ms": 0.4},
+    {"name": "ocean", "gerstner_waves": 4, "shader": "ocean/gerstner_ocean.vert", "target_ms": 0.3},
+    {"name": "galaxy", "arms": 2, "tightness": 0.22, "density": 500, "shader": "galaxy/spiral_galaxy.frag", "target_ms": 0.4},
+    {"name": "nebula", "density": 0.8, "slices": 64, "shader": "nebula/volumetric_nebula.frag", "target_ms": 0.8},
+    {"name": "black_hole", "rs": 0.3, "shadow": 2.6, "photon": 1.5, "steps": 128, "shader": "black_hole/raymarch.comp", "target_ms": 1.0},
+    {"name": "lensing", "alpha": "2rs/b", "shader": "lensing/gravitational_lensing.frag", "target_ms": 0.5},
+    {"name": "wormhole", "b0": 2.0, "classification": "SPECULATIVE", "shader": "wormhole/throat.frag", "target_ms": 0.4},
+    {"name": "particles", "amount": 256, "shader": "vfx/impact_spark.comp", "target_ms": 0.5},
+    {"name": "bloom", "strength": 0.35, "shader": "postprocess/tonemap_bloom.comp", "target_ms": 0.7}
+  ],
+  "total_target_ms": 5.2,
+  "total_budget_ms": 16.6,
+  "scales": ["single planet", "solar system", "stellar neighborhood", "galaxy", "large-scale universe"]
+}
