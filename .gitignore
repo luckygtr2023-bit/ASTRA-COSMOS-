@@ -58,3 +58,5 @@ Thumbs.db
 # But keep native_renderer/tests
 !native_renderer/tests/
 !native_renderer/tests/**
+ignore pyc
+native_renderer/tests/__pycache__/

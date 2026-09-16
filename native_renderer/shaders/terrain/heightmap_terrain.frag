@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : enable
 // ASTRA Terrain — procedural triplanar with height-based biomes, PBR, displacement
 // Port of heightmap_terrain.gdshader, now Vulkan GLSL, AAA: triplanar + virtual texturing + LOD
 #include "common/common.glsl"

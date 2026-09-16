@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : enable
 // Gerstner Ocean — 4-wave Gerstner, PBR, displacement, AAA
 #include "common/common.glsl"
 layout(set=0,binding=0) uniform OceanUBO { float time; float wave_scale; float choppy; vec2 wind; } ubo;
@@ -22,6 +23,9 @@ vec3 gerstner(vec3 p){
 void main(){
     vec3 pos = gerstner(inPos*ubo.wave_scale);
     wpos = pos;
-    wnor = normalize(cross(dFdx(pos), dFdy(pos)));
+    // Vertex shader cannot use dFdx/dFdy (fragment only) — analytical normal via finite diff approx 0.01
+    vec3 p1 = gerstner(inPos*ubo.wave_scale + vec3(0.01,0,0));
+    vec3 p2 = gerstner(inPos*ubo.wave_scale + vec3(0,0,0.01));
+    wnor = normalize(cross(p1 - pos, p2 - pos));
     gl_Position = vec4(pos,1.0); // MVP applied in real pipeline
 }

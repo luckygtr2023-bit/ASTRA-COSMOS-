@@ -75,6 +75,9 @@ file(GLOB_RECURSE RENDERER_SOURCES
     src/culling/*.cpp
     src/materials/*.cpp
     src/textures/*.cpp
+    src/quality/*.cpp
+    src/diagnostics/*.cpp
+    src/resources/*.cpp
     src/debug/*.cpp
     src/profiling/*.cpp
 )
@@ -116,8 +119,12 @@ if(ASTRA_BUILD_TESTS)
 endif()
 
 # Shader compilation — glslangValidator if available
-find_program(GLSLANG_VALIDATOR glslangValidator)
-if(GLSLANG_VALIDATOR)
+find_program(GLSLANG_VALIDATOR glslangValidator PATHS /tmp /tmp/glslang_build2/StandAlone /usr/bin NO_DEFAULT_PATH)
+find_program(GLSLANG_VALIDATOR_FALLBACK glslangValidator)
+if(GLSLANG_VALIDATOR OR GLSLANG_VALIDATOR_FALLBACK)
+    if(NOT GLSLANG_VALIDATOR)
+        set(GLSLANG_VALIDATOR ${GLSLANG_VALIDATOR_FALLBACK})
+    endif()
     message(STATUS "glslangValidator: ${GLSLANG_VALIDATOR}")
     file(GLOB_RECURSE GLSL_SHADERS shaders/*.glsl shaders/*.vert shaders/*.frag shaders/*.comp)
     foreach(SHADER ${GLSL_SHADERS})

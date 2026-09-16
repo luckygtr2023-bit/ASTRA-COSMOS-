@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : enable
 // ASTRA Atmosphere — Rayleigh + Mie (O'Neil 2004, simplified), HDR, multiple scattering stub
 // Rayleigh 4e-6 Mie 2.1e-5 as in spec, volumetric_fog 0.004 albedo
 #include "common/common.glsl"

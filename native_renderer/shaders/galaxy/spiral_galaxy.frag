@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : enable
 // Spiral Galaxy — logarithmic spiral density wave visualization, procedural 2 arms, AAA
 #include "common/common.glsl"
 layout(push_constant) uniform Push { float arm_count; float tightness; float time; } pc; // tightness b=0.22

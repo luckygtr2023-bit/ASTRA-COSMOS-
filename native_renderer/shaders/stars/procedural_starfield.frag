@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : enable
 // Procedural Starfield — port of procedural_starfield.gdshader, AAA: density + twinkle
 #include "common/common.glsl"
 layout(push_constant) uniform Push { float density; float twinkle_speed; float exposure; } pc;

@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : enable
 // Accretion Disk — Novikov-Thorne T∝r^-3/4, Doppler g^3 beaming, inner edge ISCO
 #include "common/common.glsl"
 layout(set=0,binding=0) uniform DiskUBO {

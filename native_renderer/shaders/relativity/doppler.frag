@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : enable
 // Doppler + beaming + redshift — spectral shift via blackbody LUT 16×256
 #include "common/common.glsl"
 layout(set=0,binding=0) uniform DopplerUBO { float vel; float cos_theta; float temp_k; } ubo;

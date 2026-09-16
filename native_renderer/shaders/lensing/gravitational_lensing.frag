@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : enable
 // Gravitational Lensing — alpha=4GM/c²b =2r_s/b, Einstein ring theta_E, screen-space distortion
 #include "common/common.glsl"
 layout(set=0,binding=0) uniform sampler2D sceneColor;

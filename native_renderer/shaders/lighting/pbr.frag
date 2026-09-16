@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : enable
 // PBR — clear-coat, sheen, HDR, ACES, clustered 4096 lights
 #include "common/common.glsl"
 layout(set=0,binding=0) uniform PBRUBO { vec3 baseColor; float metallic; float roughness; float clearcoat; vec3 lightPos; } ubo;
