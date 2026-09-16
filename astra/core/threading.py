@@ -361,14 +361,17 @@ class AuthorityContext:
     def has_authority(cls, operation: str) -> bool:
         """Check if the current context has authority for the given operation.
         
-        This verifies BOTH that we have a token AND that the current thread
-        is the registered simulation thread.
+        This verifies BOTH that we have a token, that the token belongs to the
+        executing thread, AND that the executing thread is the registered simulation thread.
         """
         token = cls.get_current_token()
         if token is None:
             return False
+        current_thread_id = threading.current_thread().ident
+        if token.thread_id != current_thread_id:
+            return False
         # Double-check thread registration
-        if not _sim_thread_registry.is_simulation_thread(token.thread_id):
+        if not _sim_thread_registry.is_simulation_thread(current_thread_id):
             return False
         return token.can_perform(operation)
 

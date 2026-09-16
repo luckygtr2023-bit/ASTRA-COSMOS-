@@ -7,7 +7,7 @@ import tempfile
 import shutil
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Any, BinaryIO
-from datetime import datetime
+from datetime import datetime, timezone
 import threading
 
 from astra.core.logging import get_logger
@@ -37,7 +37,7 @@ class Snapshot:
 
     def __post_init__(self):
         if not self.timestamp:
-            self.timestamp = datetime.utcnow().isoformat()
+            self.timestamp = datetime.now(timezone.utc).isoformat()
 
     def compute_checksum(self) -> str:
         """Compute the checksum of this snapshot (excluding the checksum field)."""
@@ -103,12 +103,19 @@ class PersistenceManager:
         os.makedirs(base_path, exist_ok=True)
 
     def _get_snapshot_path(self, name: str) -> str:
-        """Get the full path for a snapshot file."""
-        return os.path.join(self._base_path, f"{name}.snapshot")
+        """Get the full path for a snapshot file, preventing path traversal."""
+        safe_name = os.path.basename(name)
+        if not safe_name or safe_name != name or ".." in name or "/" in name or "\\" in name:
+            raise PersistenceError(
+                f"Invalid snapshot name: {name}",
+                reason="Path traversal or invalid characters detected",
+            )
+        return os.path.join(self._base_path, f"{safe_name}.snapshot")
 
     def _get_temp_path(self, name: str) -> str:
         """Get the temporary file path for atomic writes."""
-        return os.path.join(self._base_path, f".{name}.snapshot.tmp")
+        safe_name = os.path.basename(name)
+        return os.path.join(self._base_path, f".{safe_name}.snapshot.tmp")
 
     def save(self, snapshot: Snapshot, name: str) -> str:
         """Save a snapshot atomically.
