@@ -1,0 +1,7 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://astra_star_mat"]
+[resource]
+albedo_color = Color(0.95,0.92,0.85,1)
+emission_enabled = true
+emission = Color(0.95,0.92,0.85,1)
+emission_energy_multiplier = 2.5
+roughness = 1.0

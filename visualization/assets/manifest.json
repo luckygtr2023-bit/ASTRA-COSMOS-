@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-16T18:25:18.051Z",
+  "generated": "2026-09-16T18:40:40.341Z",
   "assets": [
     {
       "path": "visualization/assets/README.md",
@@ -14,7 +14,7 @@
     {
       "path": "visualization/assets/manifest.json",
       "size": 1177,
-      "mtime": 1789583108092.7136
+      "mtime": 1789583971725.6418
     },
     {
       "path": "visualization/assets/noise/README.md",

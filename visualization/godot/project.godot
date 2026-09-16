@@ -1,10 +1,5 @@
 ; Engine configuration file.
-; It's best edited using the editor UI and not directly,
-; since the parameters that go here are not all obvious.
-;
-; Format:
-;   [section] ; section goes between []
-;   param=value ; assign values to parameters
+; Format: [section] param=value
 
 config_version=5
 
@@ -32,14 +27,10 @@ window/stretch/mode="canvas_items"
 
 [rendering]
 
-renderer/rendering_method="gl_compatibility"
-renderer/rendering_method.mobile="gl_compatibility"
-; NOTE: Forward+ is the target. Godot 4.4 uses "forward_plus" key:
+renderer/rendering_method="forward_plus"
+renderer/rendering_method.mobile="forward_plus"
 renderer/rendering_method.web="gl_compatibility"
 environment/defaults/default_environment="res://phase_01_foundation/environments/default_env.tres"
-
-[rendering]
-
 textures/vram_compression/import_etc2_astc=true
 textures/canvas_textures/default_texture_filter=2
 textures/canvas_textures/default_texture_repeat=0
@@ -66,7 +57,3 @@ common/physics_ticks_per_second=60
 
 gdscript/warnings/untyped_declaration=1
 gdscript/warnings/inferred_declaration=1
-
-; ASTRA: Forward+ is required for volumetric, clustered lighting, and MSAA control.
-; If this file is opened in Godot 4.2, the renderer key is "forward_plus".
-; Verified: project loads in Godot 4.4.1 Forward+ (Vulkan) on Windows/Linux, falls back to Compatibility on web.
