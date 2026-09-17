@@ -1,0 +1,3 @@
+# Windows launch scripts intentionally retain CRLF line endings.
+START.bat whitespace=cr-at-eol
+scripts/start_astra.ps1 whitespace=cr-at-eol

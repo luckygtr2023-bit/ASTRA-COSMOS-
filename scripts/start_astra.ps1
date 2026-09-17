@@ -1,4 +1,5 @@
-﻿# Windows PowerShell 5.1+. No execution-policy override or elevation.
+﻿# Windows PowerShell 5.1+. START.bat supplies a process-only policy bypass.
+# This script never changes persistent execution policy or requests elevation.
 [CmdletBinding()]
 param([switch]$Headless, [switch]$SetupPython, [switch]$NoPause)
 Set-StrictMode -Version Latest
@@ -78,7 +79,9 @@ try {
     $logDir = Join-Path $root 'logs'
     [IO.Directory]::CreateDirectory($logDir) | Out-Null
     $script:Log = Join-Path $logDir 'astra_startup.log'
-    Say 'Initializing ASTRA COSMOS...'
+    Say 'Initializing...'
+    Say 'PowerShell bootstrap started.'
+    Say 'Checking dependencies...'
     $script:Stage = 'SYSTEM'
     Say "Checking system... Windows $([Environment]::OSVersion.VersionString); project root: $root"
     if (-not [Environment]::Is64BitOperatingSystem -or -not [Environment]::Is64BitProcess) { throw 'Use 64-bit Windows and 64-bit PowerShell for the x64 renderer.' }

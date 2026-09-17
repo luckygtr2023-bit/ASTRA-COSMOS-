@@ -20,7 +20,7 @@ There is a separate source-level blocker: `native_renderer/src/rhi/vulkan_rhi.cp
 
 ## 2. New START.bat architecture
 
-START.bat discovers `%~dp0`, disables delayed expansion, changes to that directory, and invokes the explicit Windows PowerShell system executable. It does not invoke the legacy EXE or forward arbitrary command fragments. Standard user, no elevation. A double-click console remains available via PowerShell `-NoExit`, script ENTER prompt, and batch fallback pause on host failures. Users can type `exit` if a shell remains after the prompt.
+START.bat discovers `%~dp0`, disables delayed expansion, changes to that directory, and invokes the explicit Windows PowerShell system executable. It does not invoke the legacy EXE or forward arbitrary command fragments. Standard user, no elevation. A double-click console remains available via the script ENTER prompt and batch fallback pause on host failures. `-NoExit` is removed so parse/policy failures return directly to the batch error handler.
 
 ## 3. PowerShell bootstrap flow
 
@@ -78,7 +78,7 @@ Create logs and append timestamped logs/astra_startup.log. Record Windows versio
 
 ## 12. Security considerations
 
-- No execution-policy bypass, RunAs, profile loading, arbitrary download execution or PATH mutation.
+- Process-scoped `-ExecutionPolicy Bypass` only; no persistent execution-policy changes, RunAs, profile loading, arbitrary download execution or PATH mutation.
 - Batch uses quoted self-relative paths and disabled delayed expansion. PowerShell uses literal paths, argument arrays and direct native process launch.
 - .env is never sourced as PowerShell. Environment secret/key/token/password values and .env assignment values are collected for redaction; common JWT/key/password and URL-userinfo patterns are filtered too.
 - Redaction is defense-in-depth, not a guarantee against every possible future child output/encoded secret. Review logs before sharing. No credentials added.
@@ -132,13 +132,45 @@ Double click `START.bat`, or from any directory:
 Batch invokes:
 
 ```bat
-"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NoExit -File "%~dp0scripts\start_astra.ps1"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start_astra.ps1"
 ```
 
-The bootstrap uses ProcessStartInfo with FileName = selected absolute `astra_native.exe`, WorkingDirectory = project root, and empty Arguments by default. Only explicit script `-Headless` sets Arguments = `--headless`. Manual optional Python preparation: `powershell.exe -NoProfile -File .\scripts\start_astra.ps1 -SetupPython`. Developer automation can use `-NoPause`; START never does.
+The bootstrap uses ProcessStartInfo with FileName = selected absolute `astra_native.exe`, WorkingDirectory = project root, and empty Arguments by default. Only explicit script `-Headless` sets Arguments = `--headless`. Manual optional Python preparation: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_astra.ps1 -SetupPython`. Developer automation can use `-NoPause`; START never does.
 
 ## 16. Known limitations / final validation
 
 Created/static checks pass for launcher files, root discovery code, intended visible host, banner construction, dependency checks/reuse/repair, native discovery, honest Vulkan reporting, basic configuration validation, redaction, logging code, failure retention code, exit handling, README and report. No original EXE, scientific implementation, physics, Supabase, test, renderer source or developer launcher was removed. CMake change is limited to compiler flags.
 
 **Not runtime verified:** window visibility, emitted banner/log, network package installation, Windows path edge cases, PowerShell parsing, Windows native build, actual ASTRA launch, GPU initialization. An actual Windows renderer is absent from the supplied package. More importantly, the existing runtime source is diagnostic/mock and cannot currently satisfy a persistent production application's readiness contract. These are remaining issues, not solved by creating START.bat.
+
+
+## 17. Confirmed PowerShell execution-policy failure and targeted repair
+
+### Original failure — user-observed Windows evidence
+
+- **Stage:** PowerShell bootstrap (before the script executes).
+- **Failure:** Unsigned `scripts\start_astra.ps1` blocked by Windows execution policy.
+- **Actual error:** “The file is not digitally signed. You cannot run this script on the current system.” `FullyQualifiedErrorId: UnauthorizedAccess`.
+- **Status:** IDENTIFIED.
+
+This is the first confirmed failure in the reported Windows workflow. It is not evidence of a Python, Vulkan, renderer or engine failure. Earlier source/binary limitations in this report are inspection findings, not observed next-stage failures for this workflow.
+
+### Exact repair
+
+START.bat now invokes:
+
+```bat
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start_astra.ps1"
+```
+
+No permanent Set-ExecutionPolicy command, registry edit or administrator request is used. Root discovery and quoted paths are preserved. This process-level option is appropriate only for a trusted repository; enforced MachinePolicy/UserPolicy may take precedence. No attempt is made to circumvent organization policy.
+
+Removed `-NoExit` so an early policy/parser error returns immediately to START.bat, which captures `%ERRORLEVEL%`, prints `[ASTRA📡🌌] STARTUP FAILED`, references the actual unredirected error above, and pauses. The PowerShell script still retains its exception reporting and ENTER prompt. UTF-8 batch output is enabled for the failure label. The existing banner remains, followed by Initializing, PowerShell bootstrap started, and Checking dependencies messages. No errors are suppressed.
+
+### Testing results for this repair
+
+Portable regression suite: **11 tests passed**. Covers exact invocation, process-only policy option, absence of persistent policy/elevation commands, bootstrap messages, quoted root path and failure-retention structure. `git diff --check`: passed. Script reviewed for compatibility with `-File`; parameters and normal diagnostics remain unchanged. These are static/helper checks, not PowerShell parser or Windows tests.
+
+**Double-click Windows test: NOT VERIFIED.** This environment has no Windows CMD/PowerShell runtime. Consequently none of the requested eight real workflow observations has been newly verified here: visible window, banner, script execution, disappearance of UnauthorizedAccess, dependency checks, Python checks, renderer detection or launch attempt. The first fix is implemented but Windows confirmation is pending.
+
+**Next actual error:** None observed after this change; no Windows rerun is available. Run the updated START.bat on the affected machine and retain the next actual diagnostic, if any. Do not infer a next-stage failure from the source inspection notes above.

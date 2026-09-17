@@ -18,7 +18,7 @@
 
 **Important limitation:** This checkout packages a Linux native binary, not a Windows renderer. Source inspection also shows mock Vulkan initialization and a finite diagnostic loop, not a persistent windowed simulator. START.bat is a bootstrapper, **not the scientific engine**; it cannot turn those implementations into a working GPU GUI. It reports a normal-mode exit without readiness as a startup failure, even if the native exit code is zero. **Windows execution and GPU rendering are NOT VERIFIED.** See [the startup report](ASTRA_WINDOWS_STARTUP_REPORT.md). This current-status section supersedes historical EXE/Windows-ready claims later in this README.
 
-Standard-user startup uses Windows PowerShell 5.1 without profiles, elevation, or an execution-policy bypass. If organizational policy blocks the script, consult your administrator; the console stays available. After diagnostics press ENTER; if PowerShell remains open, type `exit`.
+Standard-user startup uses Windows PowerShell 5.1 with `-NoProfile -ExecutionPolicy Bypass -File`. The bypass applies only to this launched process; it does not change permanent machine/user policy or request elevation. Run START.bat only from a trusted checkout. Organizational Group Policy may still override this option; consult your administrator if blocked. The script retains diagnostics with an ENTER prompt, and START.bat pauses on a nonzero host/bootstrap exit, preserving the original error above it. Windows verification of this policy fix is still pending.
 
 The native executable needs no Python or Supabase. Missing `.env` does not block local diagnostics. For optional accounts, configure `ASTRA_SUPABASE_URL` and `ASTRA_SUPABASE_PUBLISHABLE_KEY` using `.env.example` and the existing product layer. START does not execute `.env` or print its values. Remove the stray Markdown fence in the existing example when copying it. No credentials are generated.
 
@@ -29,10 +29,10 @@ From a 64-bit Windows PowerShell / Visual Studio developer terminal:
 ```powershell
 # Optional existing Python product layer; reuse .venv/venv, otherwise create .venv.
 # Installs only pyproject.toml dependencies via pip, not development extras.
-powershell.exe -NoProfile -File .\scripts\start_astra.ps1 -SetupPython
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_astra.ps1 -SetupPython
 
 # Explicit diagnostic mode (never chosen silently by START.bat)
-powershell.exe -NoProfile -File .\scripts\start_astra.ps1 -Headless
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_astra.ps1 -Headless
 
 # Existing native CMake target, requires CMake >=3.28 and a C++20 toolchain.
 cmake -S native_renderer -B native_renderer/build-windows -DCMAKE_BUILD_TYPE=Release -DASTRA_BUILD_LAUNCHER=OFF

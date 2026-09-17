@@ -19,14 +19,14 @@ class BootstrapStaticTests(unittest.TestCase):
     def test_root_and_retention(self):
         self.assertIn('cd /d "%~dp0"', BAT)
         self.assertIn('DisableDelayedExpansion', BAT)
-        self.assertIn('-NoProfile -NoExit -File "%~dp0scripts\\start_astra.ps1"', BAT)
+        self.assertIn('-NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\\start_astra.ps1"', BAT)
         self.assertIn('Set-Location -LiteralPath $root', PS)
         self.assertIn("Read-Host 'Press ENTER", PS)
         self.assertNotIn('%*', BAT)
 
     def test_no_legacy_launcher_or_download_execution(self):
         self.assertNotIn('ASTRA COSMOS.exe', PS)
-        for forbidden in ('Invoke-Expression', 'Invoke-WebRequest', '-Verb RunAs', 'ExecutionPolicy Bypass'):
+        for forbidden in ('Invoke-Expression', 'Invoke-WebRequest', '-Verb RunAs', 'Set-ExecutionPolicy'):
             self.assertNotIn(forbidden, PS + BAT)
         self.assertIn("'--index-url', 'https://pypi.org/simple'", PS)
 
@@ -36,6 +36,17 @@ class BootstrapStaticTests(unittest.TestCase):
         self.assertNotIn('has started successfully', PS)
         self.assertNotIn('ASTRA launched successfully', PS)
         self.assertIn('without establishing a persistent application', PS)
+
+    def test_process_only_policy_and_bootstrap_diagnostics(self):
+        self.assertEqual(BAT.count('-ExecutionPolicy Bypass'), 1)
+        self.assertNotIn('-NoExit', BAT)  # Host failures return immediately to batch pause.
+        self.assertIn('set "ASTRA_EXIT=%ERRORLEVEL%"', BAT)
+        self.assertIn('[ASTRA📡🌌] STARTUP FAILED', BAT)
+        self.assertIn('The actual PowerShell error is shown above.', BAT)
+        self.assertIn("Say 'PowerShell bootstrap started.'", PS)
+        self.assertIn("Say 'Checking dependencies...'", PS)
+        for forbidden in ('Set-ExecutionPolicy', '-Scope LocalMachine', '-Scope CurrentUser', '-Verb RunAs'):
+            self.assertNotIn(forbidden, BAT + PS)
 
     def test_explicit_headless_only(self):
         self.assertIn("if ($Headless) { $info.Arguments = '--headless' }", PS)
