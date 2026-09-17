@@ -1,176 +1,148 @@
-# ASTRA Windows startup report
+# ASTRA Windows startup — BAT-only migration
 
 Date: 2026-09-17
 
-## Status and verification levels
-
-- **CREATED:** START.bat, scripts/start_astra.ps1, scripts/check_python_dependencies.py, logs/.gitkeep, portable regression tests, this report.
-- **STATICALLY VERIFIED:** entry-point quoting/retention, native target selection policy, declared Python dependency check, logging/redaction paths, explicit-only headless mode. Ten portable regression tests pass; existing native static validator: 221 OK, 0 FAIL.
-- **BUILD VERIFIED:** NO. CMake and a Windows compiler/runtime are unavailable in this environment. The MSVC flag correction has not been compiled.
-- **RUNTIME VERIFIED:** NO for Windows launcher/application. Python dependency-check behavior was tested with mocked installed metadata, not actual Windows package installations.
-- **GPU VERIFIED:** NO. No Vulkan device enumeration, real renderer initialization, or presentation verified.
-
-This is not a claim that the simulator is fixed or running.
-
-## 1. Previous EXE launcher problem
-
-Direct binary-header checks in this turn confirm root `ASTRA COSMOS.exe` has MZ/PE signatures, whereas `release/ASTRA-COSMOS/bin/astra_native` has Linux ELF magic. Windows cannot execute that child as a native Windows application. The earlier forensic report describes the disappearing console; its claimed Windows observations were not reproduced here. Keeping the existing EXE does not solve the incompatible child artifact.
-
-There is a separate source-level blocker: `native_renderer/src/rhi/vulkan_rhi.cpp` mocks instance creation, device enumeration, logical devices and swapchain behavior, including with Vulkan headers present. `main.cpp` runs 120 diagnostic iterations, additional subsystem checks, then shuts down. It supplies no persistent GUI/readiness handshake. A bootstrapper cannot repair that scientific/rendering implementation without a separate engine change.
-
-## 2. New START.bat architecture
-
-START.bat discovers `%~dp0`, disables delayed expansion, changes to that directory, and invokes the explicit Windows PowerShell system executable. It does not invoke the legacy EXE or forward arbitrary command fragments. Standard user, no elevation. A double-click console remains available via the script ENTER prompt and batch fallback pause on host failures. `-NoExit` is removed so parse/policy failures return directly to the batch error handler.
-
-## 3. PowerShell bootstrap flow
-
-Banner → Windows/x64 check → logs directory → project configuration/assets → optional Python setup → native PE discovery/build → system Vulkan loader probe → working-directory validation → direct native process creation → concurrently drained stdout/stderr → exit diagnostics → prompt.
-
-PowerShell 5.1 compatibility is intended, with UTF-8 BOM and CRLF for the script and CRLF for the batch file. Parser/runtime verification on PowerShell is still required. Emoji rendering depends on the terminal font; missing glyphs do not imply startup failure.
-
-## 4. Dependency detection
-
-Inspected `pyproject.toml`: Python >=3.9, setuptools/wheel backend, runtime dependencies `supabase>=2.0`, `python-dotenv>=1.0`, `httpx>=0.24`; development extras already exist. No new manager or requirements file introduced. No tracked Windows virtual environment was found. Native main does not start Python, so default startup does not install unused packages or make science dependent on Supabase.
-
-Native tools are located through application commands on PATH, rejecting tools inside the project directory. CMake's existing target is `astra_native`. Required tracked source/configuration/shader/assets paths are checked; missing source/assets produce restore instructions rather than invented downloads.
-
-## 5. Dependency installation
-
-`-SetupPython` uses pip inside the project environment and installs the project with `pip --isolated install --index-url https://pypi.org/simple -e <root>` only when declaration/version metadata requires repair. Transitive dependencies and declared build requirements remain pip's responsibility. `pip check` detects inconsistent installed dependencies. A conflicting/broken environment may require manual repair; it is not deleted automatically.
-
-A missing native artifact triggers configure/build of the existing CMake project in `native_renderer/build-windows`, Release, target `astra_native`, tests/tools/legacy launcher disabled. Existing valid artifacts are reused. Compiler flags now distinguish MSVC from GCC/Clang instead of passing GNU optimization flags to MSVC. All native targets/source remain intact.
-
-No Python installer, compiler, SDK, GPU driver, DLL, random EXE or remote script is downloaded. Missing prerequisite tools cause actionable errors. Existing CMake Linux-specific header/tool paths and remaining compiler portability issues may still prevent a Windows build; automatic build is an attempt, not a guarantee.
-
-## 6. Python environment handling
-
-Python is optional for native startup. With `-SetupPython`, prefer `.venv/Scripts/python.exe`, then `venv/Scripts/python.exe`, otherwise use installed `python.exe` to create `.venv`. Check Python >=3.9 and that the selected environment is isolated. No activation or global package mutation. Interpreter acquisition is manual from the official provider. Systems exposing only `py.exe` must make their Python interpreter available on PATH first. Invalid existing environments fail visibly instead of being destroyed.
-
-The small metadata checker reads `pyproject.toml` using stdlib tomllib or pip's vendored tomli for Python 3.9/3.10, and pip's vendored requirement/version parser. Missing/outdated project metadata or direct declared distributions trigger installation. Subsequent checks avoid reinstalling. No timestamp-only success cache.
-
-## 7. Native renderer detection
-
-Only explicit known `astra_native.exe` paths are searched: native_renderer build-windows Release/single-config, build Release/Debug/single-config, root build Release/single-config, native_renderer root, and release/ASTRA-COSMOS/bin. No recursive arbitrary EXE discovery. Validate MZ, PE signature, x64 machine, executable flag and not DLL. PE validation is not Authenticode verification or proof of correct linked dependencies. The Windows loader remains authoritative.
-
-Packaged extensionless Linux binaries and the legacy launcher are never substituted. PowerShell's direct ProcessStartInfo launch handles the executable path without shell interpretation. Child working directory is the repository root, matching native shader lookups.
-
-## 8. Vulkan checks
-
-Probe the absolute Windows System32 `vulkan-1.dll` with LoadLibraryEx, restricting dependency lookup to System32; free the handle afterward. Missing file/load failure is a warning with driver guidance and actual Win32 error if exposed. Loader availability does not verify a driver, physical device, Vulkan 1.3 features, surfaces or rendering.
-
-Still attempt the normal native entry point when Vulkan is missing; do not inject a fallback flag. Existing native mock behavior is disclosed. Only explicit `-Headless` sends `--headless`. No RUNNING, RENDERER_INITIALIZED, VULKAN_INITIALIZED or ASTRA_READY success is inferred from current mock messages.
-
-## 9. Configuration handling
-
-Check required tracked files and directories. Inspect `.env` assignment syntax without execution, interpolation, output of values or changes. Malformed line numbers are reported without line contents. Missing `.env` is nonblocking because native runtime does not consume it. This is a basic syntax check, not full dotenv semantic validation or remote credential validation.
-
-The optional product layer needs ASTRA_SUPABASE_URL and ASTRA_SUPABASE_PUBLISHABLE_KEY (existing fallback names remain in its implementation). START does not start that layer, test remote credentials or copy example placeholder credentials. `.env.example` currently ends with a stray Markdown fence; remove it when copying. No Supabase connectivity is needed for native local diagnostics. Existing product/offline behavior is unchanged.
-
-## 10. Error handling
-
-Catch bootstrap exceptions with stage, actual available message, exit code and next diagnostic. Native failures report signed decimal and unsigned hexadecimal exit codes. Each native stream is asynchronously read to avoid a full stderr pipe blocking stdout. Preserve relevant stderr/error lines and distinguish stream labels.
-
-PROCESS_CREATED records PID only. Startup output may update the observed stage but cannot establish health. The current normal-mode program's zero exit is reported accurately as native code 0, then bootstrap returns 1 because persistent readiness was never established. Explicit headless diagnostic code 0 is allowed but never described as GPU success. A future persistent app needs an actual trustworthy readiness contract before adding a RUNNING banner; mere survival is insufficient. No initialization timeout or automatic child kill is implemented; a hung process remains visible for manual interruption.
-
-## 11. Logging
-
-Create logs and append timestamped logs/astra_startup.log. Record Windows version, root, optional Python version/environment, checks, renderer path, command, PID, stage, child output, errors and exits. Logs are ignored by Git; .gitkeep is tracked. No raw stdout/stderr files or transcript containing secret values. Failure before log creation (e.g. read-only directory) is console-only. Logs append without rotation; users may archive/delete old logs when ASTRA is stopped. Concurrent launches are not serialized.
-
-## 12. Security considerations
-
-- Process-scoped `-ExecutionPolicy Bypass` only; no persistent execution-policy changes, RunAs, profile loading, arbitrary download execution or PATH mutation.
-- Batch uses quoted self-relative paths and disabled delayed expansion. PowerShell uses literal paths, argument arrays and direct native process launch.
-- .env is never sourced as PowerShell. Environment secret/key/token/password values and .env assignment values are collected for redaction; common JWT/key/password and URL-userinfo patterns are filtered too.
-- Redaction is defense-in-depth, not a guarantee against every possible future child output/encoded secret. Review logs before sharing. No credentials added.
-- Trust this checkout before running its build, declared Python build backend, known environment interpreter, or native artifact. PE headers do not prove provenance. Existing globally configured tools/package sources and normal Windows DLL search behavior remain trust boundaries.
-- The existing engine uses a shell shader compilation command and Linux `/tmp` paths; that code was not rewritten here. This limits Windows shader portability independently of bootstrap path handling.
-
-## 13. Tests performed
-
-Executed on Linux:
+## 1. Current architecture
 
 ```
-python -m unittest discover -s scripts/tests -v
-# 10 tests, all passed
-python native_renderer/tools/validate_native_project.py
-# Validated: 221 OK, 0 FAIL
-git diff --check
-# clean
+START.bat
+  -> scripts\terminal.bat
+       -> system / declared dependency / environment checks
+       -> optional Python project environment setup
+       -> native astra_native.exe discovery or existing CMake build
+       -> Vulkan loader-file presence warning
+       -> direct synchronous native invocation
+       -> exit diagnostics and pause
 ```
 
-Portable tests inspect root quoting, retention, explicit headless flag, no legacy launcher/download execution, PE and Vulkan checks, BOM/CRLF, absence of fake readiness, and actual packaged binary headers. Dependency helper tests simulate satisfied, missing and changed metadata. These tests do not execute PowerShell or Windows APIs. Native validator is static, not a native build or GPU test.
+The normal startup chain is **BAT/CMD only**, without PowerShell, a .ps1 prerequisite, execution-policy changes, administrator requests, or a second engine. Optional Python package validation uses the existing Python metadata helper only when the user requests Python setup; Python is not needed by the normal native startup chain.
 
-## 14. Tests not possible / Windows acceptance matrix
+`START.bat` sets `ASTRA_ROOT=%~dp0`, changes directory with quoted `cd /d`, checks terminal.bat presence and calls the **constant relative** `scripts\terminal.bat`. This deliberately avoids CALL's second expansion of percent signs embedded in an installation path. Both scripts disable delayed expansion to preserve exclamation marks. terminal.bat also discovers its own root, so it can be invoked independently from another working directory. No hard-coded drive. Paths containing quotes are invalid Windows paths; spaces, parentheses, Unicode and shell metacharacters are intended to work using quoted paths, but require Windows testing. UNC share working directories are not supported by `cd /d`; use a local/mapped drive, otherwise the launcher reports root failure and pauses.
 
-No Windows, powershell.exe, pwsh, Wine or CMake available here. All following **Windows runtime tests are NOT VERIFIED**:
+## 2. Previous confirmed failure and PowerShell removal
 
-| Scenario | Required observation on a Windows test machine |
+The user-observed first failure was at **PowerShell bootstrap**: unsigned `scripts\start_astra.ps1` was blocked with `UnauthorizedAccess` before dependencies or the engine ran. Status: **IDENTIFIED**. The previous revision added a process-only policy option; this migration supersedes that design entirely.
+
+Before deletion, a tracked repository search for `start_astra.ps1` found references only in START.bat, README, this report, .gitattributes and launcher-specific regression tests. There was no scientific engine, CMake, product, Supabase or native runtime dependency. All operational references/tests/attributes were migrated to terminal.bat before deleting the script. This report and the removal regression test intentionally retain its name as historical evidence, not a required executable component. No permanent user/machine policy was modified.
+
+No policy-block execution path remains in the new BAT source. **That static fact is not a Windows double-click test.** No next-stage Windows error has been observed during this change.
+
+## 3. EXE inspection and cleanup
+
+Every existing `.exe` was enumerated before deletion; exactly two were present:
+
+| File | Size | SHA-256 | Inspection / action |
+|---|---:|---|---|
+| `ASTRA COSMOS.exe` | 945152 bytes | `20720aa4a9ddaae88f1fa0cbc94606bc747f1967433e145d5a4f126836d79756` | MZ and PE signatures; contains `ASTRA COSMOS Launcher`, `astra_native`, `--headless`; obsolete wrapper, DELETED |
+| `release/ASTRA-COSMOS/ASTRA COSMOS.exe` | 945152 bytes | same hash | Identical obsolete wrapper, DELETED |
+
+Their identity matches the existing `native_renderer/launcher/launcher.cpp` wrapper, which locates/launches a separate native target. The native CMake target does not link to or depend on these wrapper binaries. They were not scientific runtimes. The earlier packaged-child mismatch remains documented: `release/ASTRA-COSMOS/bin/astra_native` starts with ELF magic, not a Windows native executable. **That native artifact was preserved**, along with native source, libraries, shader/assets, scientific systems and Supabase.
+
+Legacy launcher C++ source and the opt-in `ASTRA_BUILD_LAUNCHER` CMake target remain for developers. Its default is now OFF so ordinary clean builds do not recreate the obsolete user-facing EXE. The BAT build also explicitly passes OFF. Older CMake caches can retain their old setting. Historical forensic/release documents remain historical, not current startup instructions.
+
+## 4. Terminal and environment checks
+
+Both BAT files use UTF-8 without BOM, CRLF, and `chcp 65001` for the ASTRA📡🌌 banner. Glyph appearance depends on Windows terminal/font support. terminal.bat prints initialization, system, dependencies, Python, native renderer, runtime preparation and launch messages as the respective stages are reached.
+
+Checks include Windows OS, writeable logs directory, pyproject.toml, native CMake source/main, common shader and assets directory. Missing required project files produce restoration instructions; no fabricated assets or unknown downloads. The working directory is the repository root, matching native `native_renderer/shaders/...` lookups.
+
+`.env` presence is reported but its contents are never executed, parsed, echoed or logged by CMD. Full dotenv/remote credential validation is not implemented in batch. Native main does not consume Supabase configuration, so missing/invalid product configuration does not block local native work. Optional accounts remain governed by the existing product layer and documented keys/offline behavior. No credentials are hard-coded or generated.
+
+## 5. Dependency handling and Python environment
+
+Actual declared Python workflow remains `pyproject.toml`, setuptools/wheel, Python >=3.9, dependencies `supabase>=2.0`, `python-dotenv>=1.0`, `httpx>=0.24`. No new manager or arbitrary package list.
+
+Default startup checks for an existing `.venv\Scripts\python.exe`, then `venv\Scripts\python.exe`; if present it prints/logs the version. Python absence or a broken interpreter is nonblocking in normal native mode. It does not search/install an unnecessary global Python interpreter by default.
+
+Explicit optional setup:
+
+```bat
+scripts\terminal.bat --setup-python
+```
+
+Reuses the same environments without activation or global package changes. If neither is usable, finds installed `python.exe` through `where.exe` with System32 as working directory, checks >=3.9 and creates `.venv` **only if no .venv/venv directory exists**. Broken/non-Windows environments are not overwritten. Only `py.exe`-available installations must expose the interpreter on PATH manually. No Python interpreter installer is downloaded.
+
+The existing Python helper reads project declarations/installed metadata. Missing/changed direct dependencies trigger:
+
+```bat
+"<selected environment>\Scripts\python.exe" -m pip --isolated install --index-url https://pypi.org/simple -e .
+```
+
+Then validate metadata and run `pip check`. Existing declared dependencies are reused without reinstallation; detected conflicts fail visibly rather than deleting environments. Python helper tests simulate satisfied, missing and changed metadata; they are not Windows pip-install tests.
+
+## 6. Native renderer discovery/build
+
+CMake declares `astra_native`, built from the existing native main and linked renderer library. Search only known `astra_native.exe` locations: native_renderer build-windows Release/single-config, native_renderer build Release/Debug/single-config, root build Release/Debug/single-config, native_renderer root and release/ASTRA-COSMOS/bin. Existing candidates are reused. No recursive “run any EXE” search, no old EXE wrapper or extensionless ELF substitution.
+
+**Pure CMD discovery checks filename presence, not PE headers/signature/architecture.** The Windows loader is authoritative at invocation, and its actual console diagnostics/result are retained. This is weaker than the removed script's PE check and is disclosed, not presented as binary verification.
+
+If absent, resolve installed CMake via `where.exe` from System32, print version and configure the existing project:
+
+```bat
+"<cmake.exe>" -S native_renderer -B native_renderer\build-windows -DCMAKE_BUILD_TYPE=Release -DASTRA_BUILD_LAUNCHER=OFF -DASTRA_BUILD_TESTS=OFF -DASTRA_BUILD_TOOLS=OFF
+"<cmake.exe>" --build native_renderer\build-windows --config Release --target astra_native --parallel 2
+```
+
+Requires CMake 3.28+ (enforced by CMakeLists) and an installed Windows C++20 toolchain. CMake chooses the generator; Ninja is not required unless selected by the developer. Missing tools/build errors remain visible with real exit codes. No third-party compiler/SDK/DLL download. The previous MSVC flag separation is preserved. Windows build portability remains **NOT VERIFIED**; Linux-specific native shader/tool paths still exist.
+
+## 7. Vulkan and readiness honesty
+
+CMD tests only `%SystemRoot%\System32\vulkan-1.dll` file presence. This is **not** a load test, driver/device enumeration, feature test or renderer initialization. Missing file produces official GPU-driver guidance and the normal entry point is still attempted. No Vulkan binaries are downloaded and no headless argument is injected silently.
+
+Explicit diagnostics:
+
+```bat
+scripts\terminal.bat --headless
+```
+
+Current source inspection shows mocked instance/device/swapchain functions and a finite 120-iteration diagnostic main. This is not proof of any failure on the user's machine after the old policy block. It does mean there is no honest readiness handshake the BAT can use. The script never prints a RUNNING banner on creation, mock output, or zero exit. A zero-code exit is recorded as native code 0; in normal mode the bootstrap returns 1 for readiness not established. Explicit headless diagnostics may return 0 without claiming GPU success. A future genuine persistent runtime needs an actual trustworthy readiness signal before adding RUNNING reporting.
+
+## 8. Errors, process results and logging
+
+Direct quoted synchronous native invocation keeps stdout/stderr visible and waits for completion. `%ERRORLEVEL%` is saved on the immediately following line, before logging/pause can change it. Stage, actual available exit code, contextual error and next check are displayed on failure, followed by `pause`. CMD/loader/compiler/pip errors are not redirected away. No PID or initialization event is invented. A hang is not automatically killed; use the terminal to interrupt.
+
+`logs\astra_startup.log` is append-only curated metadata: timestamps, Windows version, quoted root/environment/tool/runtime paths, Python version when detected, checks, launch command, process result, exits and startup error summaries. `logs/.gitkeep` is preserved, log files ignored. Error before log creation is console-only.
+
+**Security trade-off for BAT-only:** raw native/pip/CMake stdout/stderr are not duplicated to logs, because pure CMD cannot reliably redact arbitrary secrets. Full actual diagnostic text is visible in the retained console, while the log records code/stage and a curated error summary. No environment dumps, credential values, .env contents or arbitrary user arguments are logged. Review terminal output before sharing. Log rotation and concurrent-start locking are not implemented. Mid-run disk/log failures are displayed by CMD but do not reliably abort an already-running child.
+
+Only fixed optional flags reach the native child. START.bat does not forward arbitrary arguments. All CALL statements use constant labels/paths, avoiding second expansion of root paths. No elevation, permanent policy mutation, remote script execution or PATH mutation. Existing PATH tools, known environment interpreters, native candidates and project build backends still require a trusted installation/checkout; no Authenticode provenance checks. Existing engine shader shell commands are outside this launcher change.
+
+## 9. Tests and actual runtime result
+
+### Executed here on Linux
+
+- Portable source/helper suite: `python -m unittest discover -s scripts/tests -v` — **13 passed**.
+- Existing native project validator: `python native_renderer/tools/validate_native_project.py` — **221 OK, 0 FAIL**.
+- `git diff --check` — passed.
+- Examined both EXEs' signatures, string identity, size/hash before removal.
+- Checked script dependency references before removal and verified no executable startup references remain.
+- Confirmed preserved native packaged ELF signature and native/legacy C++ source existence.
+
+Tests cover root discovery/constant CALL, no PowerShell/policy chain, label references, error retention/result capture, declared optional dependencies, explicit headless, no fake readiness/GPU claims, curated logging, deletion boundaries, CRLF and metadata helper behavior. They **inspect BAT source, not execute CMD**.
+
+### Windows acceptance tests — all NOT VERIFIED
+
+| Requested test | Result |
 |---|---|
-| Double-click from root | Visible PowerShell/banner/log and retained terminal |
-| Invoke START.bat from another directory | Root resolved; shader lookup from repo root |
-| Spaces/Unicode/parentheses/ampersands/percent/exclamation paths | Correct literal paths, no shell interpretation |
-| Missing Python | Normal native flow unaffected; -SetupPython explains official installation |
-| Missing declared package | Optional setup installs project once; next run reuses it |
-| Missing renderer | CMake builds actual Windows target or displays actual prerequisite/build error |
-| Invalid .env | Line-number warning, no secret values; native local flow remains independent |
-| Missing Vulkan | Loader warning, no false GPU claim or implicit headless flag |
-| Immediate exit / missing DLL | Actual code/streams/stage retained; no success banner |
-| Normal application startup | Requires a real persistent renderer/readiness implementation first |
-| Explicit headless | Diagnostic exit remains visible, no GPU-success claim |
-| Policy block / missing script / unwritable logs | Visible host or bootstrap error, no disappearing failure |
+| Double-click START.bat / visible terminal | NOT VERIFIED |
+| Banner and project-root detection | NOT VERIFIED |
+| From another directory / special-character paths | NOT VERIFIED |
+| No PowerShell invocation / no policy error | Static source confirms no invocation; Windows run NOT VERIFIED |
+| Dependency and Python checks execute | NOT VERIFIED |
+| Missing Python/packages, malformed config | NOT VERIFIED |
+| Native renderer discovery or auto-build | NOT VERIFIED |
+| Missing Vulkan, immediate child exit/missing DLL | NOT VERIFIED |
+| Launch attempted / actual application success | NOT VERIFIED |
+| Errors remain visible / log created | NOT VERIFIED |
 
-Use a disposable copy/VM for destructive missing-dependency tests, not the user's live environment. Test secret canaries in both streams and .env before sharing logs. No fabricated Windows simulation results are recorded.
+No Windows CMD, PowerShell, Wine or Windows toolchain is available here; no Windows double-click or build/GPU test has occurred. **WINDOWS RUNTIME VERIFICATION: NOT VERIFIED. ASTRA: NOT LAUNCHED.** Windows native artifact: NOT FOUND in the supplied checkout. Actual next runtime error: **none observed; awaiting Windows execution**, not guessed from inspection findings.
 
-## 15. Exact launch commands
+## 10. Final validation and remaining limitations
 
-Double click `START.bat`, or from any directory:
+- **CREATED / STATICALLY CHECKED:** BAT-only startup, dependency/configuration logic, logging/retention, updated README/report/tests.
+- **REMOVED:** PowerShell startup script and the two inspected obsolete wrapper binaries. No engine/runtime source or scientific/Supabase systems removed.
+- **BUILD VERIFIED:** NO.
+- **RUNTIME VERIFIED:** NO.
+- **GPU VERIFIED:** NO.
 
-```bat
-"D:\path to\ASTRA COSMOS\START.bat"
-```
-
-Batch invokes:
-
-```bat
-"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start_astra.ps1"
-```
-
-The bootstrap uses ProcessStartInfo with FileName = selected absolute `astra_native.exe`, WorkingDirectory = project root, and empty Arguments by default. Only explicit script `-Headless` sets Arguments = `--headless`. Manual optional Python preparation: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_astra.ps1 -SetupPython`. Developer automation can use `-NoPause`; START never does.
-
-## 16. Known limitations / final validation
-
-Created/static checks pass for launcher files, root discovery code, intended visible host, banner construction, dependency checks/reuse/repair, native discovery, honest Vulkan reporting, basic configuration validation, redaction, logging code, failure retention code, exit handling, README and report. No original EXE, scientific implementation, physics, Supabase, test, renderer source or developer launcher was removed. CMake change is limited to compiler flags.
-
-**Not runtime verified:** window visibility, emitted banner/log, network package installation, Windows path edge cases, PowerShell parsing, Windows native build, actual ASTRA launch, GPU initialization. An actual Windows renderer is absent from the supplied package. More importantly, the existing runtime source is diagnostic/mock and cannot currently satisfy a persistent production application's readiness contract. These are remaining issues, not solved by creating START.bat.
-
-
-## 17. Confirmed PowerShell execution-policy failure and targeted repair
-
-### Original failure — user-observed Windows evidence
-
-- **Stage:** PowerShell bootstrap (before the script executes).
-- **Failure:** Unsigned `scripts\start_astra.ps1` blocked by Windows execution policy.
-- **Actual error:** “The file is not digitally signed. You cannot run this script on the current system.” `FullyQualifiedErrorId: UnauthorizedAccess`.
-- **Status:** IDENTIFIED.
-
-This is the first confirmed failure in the reported Windows workflow. It is not evidence of a Python, Vulkan, renderer or engine failure. Earlier source/binary limitations in this report are inspection findings, not observed next-stage failures for this workflow.
-
-### Exact repair
-
-START.bat now invokes:
-
-```bat
-"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start_astra.ps1"
-```
-
-No permanent Set-ExecutionPolicy command, registry edit or administrator request is used. Root discovery and quoted paths are preserved. This process-level option is appropriate only for a trusted repository; enforced MachinePolicy/UserPolicy may take precedence. No attempt is made to circumvent organization policy.
-
-Removed `-NoExit` so an early policy/parser error returns immediately to START.bat, which captures `%ERRORLEVEL%`, prints `[ASTRA📡🌌] STARTUP FAILED`, references the actual unredirected error above, and pauses. The PowerShell script still retains its exception reporting and ENTER prompt. UTF-8 batch output is enabled for the failure label. The existing banner remains, followed by Initializing, PowerShell bootstrap started, and Checking dependencies messages. No errors are suppressed.
-
-### Testing results for this repair
-
-Portable regression suite: **11 tests passed**. Covers exact invocation, process-only policy option, absence of persistent policy/elevation commands, bootstrap messages, quoted root path and failure-retention structure. `git diff --check`: passed. Script reviewed for compatibility with `-File`; parameters and normal diagnostics remain unchanged. These are static/helper checks, not PowerShell parser or Windows tests.
-
-**Double-click Windows test: NOT VERIFIED.** This environment has no Windows CMD/PowerShell runtime. Consequently none of the requested eight real workflow observations has been newly verified here: visible window, banner, script execution, disappearance of UnauthorizedAccess, dependency checks, Python checks, renderer detection or launch attempt. The first fix is implemented but Windows confirmation is pending.
-
-**Next actual error:** None observed after this change; no Windows rerun is available. Run the updated START.bat on the affected machine and retain the next actual diagnostic, if any. Do not infer a next-stage failure from the source inspection notes above.
+Remaining work is actual Windows acceptance testing, a Windows native build if absent, and separately implementing/verifying genuine persistent renderer readiness. These are not claimed to be the next observed error. The new chain eliminates the PowerShell dependency by design; it does not establish that the whole application is fixed.

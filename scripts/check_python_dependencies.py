@@ -34,7 +34,7 @@ def main():
         return 0
     except Exception:
         # Do not print package configuration/URLs; pip reports installation errors
-        # through the launcher's redaction pipeline if a repair is needed.
+        # in the retained terminal if a repair is needed, not in startup logs.
         return 1
 
 

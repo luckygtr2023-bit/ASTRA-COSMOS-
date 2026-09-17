@@ -1,68 +1,98 @@
-"""Portable regression checks, NOT Windows runtime verification.
+"""Portable BAT source/helper tests. These DO NOT execute Windows CMD.
 Run: python -m unittest discover -s scripts/tests -v
 """
 import importlib.util
 from pathlib import Path
-import struct
+import re
 import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-PS = (ROOT / 'scripts/start_astra.ps1').read_text(encoding='utf-8-sig')
 BAT = (ROOT / 'START.bat').read_text()
+TERMINAL = (ROOT / 'scripts/terminal.bat').read_text()
 spec = importlib.util.spec_from_file_location('dependency_check', ROOT / 'scripts/check_python_dependencies.py')
 checker = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(checker)
 
 
 class BootstrapStaticTests(unittest.TestCase):
-    def test_root_and_retention(self):
-        self.assertIn('cd /d "%~dp0"', BAT)
-        self.assertIn('DisableDelayedExpansion', BAT)
-        self.assertIn('-NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\\start_astra.ps1"', BAT)
-        self.assertIn('Set-Location -LiteralPath $root', PS)
-        self.assertIn("Read-Host 'Press ENTER", PS)
+    def test_root_discovery_and_no_call_path_reexpansion(self):
+        self.assertIn('set "ASTRA_ROOT=%~dp0"', BAT)
+        self.assertIn('cd /d "%ASTRA_ROOT%"', BAT)
+        self.assertIn('call scripts\\terminal.bat', BAT)
+        self.assertIn('cd /d "%~dp0.."', TERMINAL)
         self.assertNotIn('%*', BAT)
+        for text in (BAT, TERMINAL):
+            self.assertIn('DisableDelayedExpansion', text)
+            for line in text.splitlines():
+                if line.lower().startswith('call '):
+                    self.assertNotIn('%', line)
 
-    def test_no_legacy_launcher_or_download_execution(self):
-        self.assertNotIn('ASTRA COSMOS.exe', PS)
-        for forbidden in ('Invoke-Expression', 'Invoke-WebRequest', '-Verb RunAs', 'Set-ExecutionPolicy'):
-            self.assertNotIn(forbidden, PS + BAT)
-        self.assertIn("'--index-url', 'https://pypi.org/simple'", PS)
+    def test_no_powershell_or_policy_dependency(self):
+        for token in ('powershell', '.ps1', 'executionpolicy', 'runas'):
+            self.assertNotIn(token, (BAT + TERMINAL).lower())
+        self.assertFalse((ROOT / 'scripts/start_astra.ps1').exists())
 
-    def test_process_diagnostics_not_fake_ready(self):
-        for required in ('ReadLineAsync()', 'PROCESS_CREATED', '$process.ExitCode', 'Last startup stage', 'Protect-Text'):
-            self.assertIn(required, PS)
-        self.assertNotIn('has started successfully', PS)
-        self.assertNotIn('ASTRA launched successfully', PS)
-        self.assertIn('without establishing a persistent application', PS)
+    def test_every_label_reference_exists(self):
+        for text in (BAT, TERMINAL):
+            labels = set(re.findall(r'^:([a-z_]+)', text, re.M | re.I))
+            references = re.findall(r'\bgoto ([a-z_]+)|\bcall :([a-z_]+)', text, re.I)
+            for pair in references:
+                self.assertIn(next(item for item in pair if item), labels)
 
-    def test_process_only_policy_and_bootstrap_diagnostics(self):
-        self.assertEqual(BAT.count('-ExecutionPolicy Bypass'), 1)
-        self.assertNotIn('-NoExit', BAT)  # Host failures return immediately to batch pause.
-        self.assertIn('set "ASTRA_EXIT=%ERRORLEVEL%"', BAT)
-        self.assertIn('[ASTRA📡🌌] STARTUP FAILED', BAT)
-        self.assertIn('The actual PowerShell error is shown above.', BAT)
-        self.assertIn("Say 'PowerShell bootstrap started.'", PS)
-        self.assertIn("Say 'Checking dependencies...'", PS)
-        for forbidden in ('Set-ExecutionPolicy', '-Scope LocalMachine', '-Scope CurrentUser', '-Verb RunAs'):
-            self.assertNotIn(forbidden, BAT + PS)
+    def test_error_retention_and_result_capture(self):
+        for text in (BAT, TERMINAL):
+            self.assertIn('STARTUP FAILED', text)
+            self.assertIn('Stage:', text)
+            self.assertIn('Error:', text)
+            self.assertIn('Exit code:', text)
+            self.assertIn('pause', text)
+        self.assertIn('"%ASTRA_NATIVE%" %ASTRA_ARGUMENTS%\nset "ASTRA_CODE=%ERRORLEVEL%"', TERMINAL)
+        self.assertIn('exit /b %ASTRA_CODE%', TERMINAL)
 
-    def test_explicit_headless_only(self):
-        self.assertIn("if ($Headless) { $info.Arguments = '--headless' }", PS)
-        self.assertNotIn('-Headless', BAT)
+    def test_dependencies_are_optional_and_declared(self):
+        self.assertIn('if "%ASTRA_SETUP%"=="0" goto python_optional', TERMINAL)
+        self.assertIn('check_python_dependencies.py', TERMINAL)
+        self.assertIn('-m pip --isolated install --index-url https://pypi.org/simple -e .', TERMINAL)
+        self.assertIn('if exist ".venv\\" goto invalid_venv', TERMINAL)
+        self.assertIn('if exist "venv\\" goto invalid_venv', TERMINAL)
+        self.assertNotIn('activate.bat', TERMINAL)
 
-    def test_pe_and_vulkan_checks(self):
-        for required in ('0x5A4D', '0x4550', '0x8664', '0x2000', 'LoadLibraryEx', 'SystemDirectory', 'GPU rendering NOT VERIFIED'):
-            self.assertIn(required, PS)
+    def test_native_target_and_explicit_headless(self):
+        self.assertIn('--target astra_native', TERMINAL)
+        self.assertIn('-DASTRA_BUILD_LAUNCHER=OFF', TERMINAL)
+        self.assertNotIn('ASTRA COSMOS.exe', BAT + TERMINAL)
+        self.assertIn('if "%ASTRA_HEADLESS%"=="1" set "ASTRA_ARGUMENTS=--headless"', TERMINAL)
+        self.assertNotIn('--headless', BAT)
+        self.assertIn('Windows loader will validate executable format', TERMINAL)
 
-    def test_existing_packaged_target_is_elf(self):
-        path = ROOT / 'release/ASTRA-COSMOS/bin/astra_native'
-        self.assertEqual(path.read_bytes()[:4], b'\x7fELF')
-        data = (ROOT / 'ASTRA COSMOS.exe').read_bytes()
-        self.assertEqual(data[:2], b'MZ')
-        offset = struct.unpack_from('<I', data, 60)[0]
-        self.assertEqual(data[offset:offset+4], b'PE\0\0')
+    def test_no_fake_success_or_gpu_claim(self):
+        self.assertIn('GPU rendering NOT VERIFIED by CMD', TERMINAL)
+        self.assertIn('Native exit code was 0 but persistent application readiness was not established', TERMINAL)
+        self.assertNotIn('has started successfully', TERMINAL)
+        self.assertNotIn('ASTRA📡🌌 RUNNING', TERMINAL)
+
+    def test_curated_logging_not_secret_output(self):
+        self.assertIn('logs\\astra_startup.log', TERMINAL)
+        self.assertIn('[%DATE% %TIME%] [%ASTRA_STAGE%]', TERMINAL)
+        self.assertNotIn('2>&1', TERMINAL)
+        self.assertNotIn('type ".env"', TERMINAL.lower())
+        self.assertNotIn('set >>', TERMINAL.lower())
+        self.assertNotIn('"%ASTRA_NATIVE%" %ASTRA_ARGUMENTS% >>', TERMINAL)
+
+    def test_launcher_deletions_preserve_runtime(self):
+        self.assertFalse((ROOT / 'ASTRA COSMOS.exe').exists())
+        self.assertFalse((ROOT / 'release/ASTRA-COSMOS/ASTRA COSMOS.exe').exists())
+        self.assertTrue((ROOT / 'native_renderer/launcher/launcher.cpp').exists())
+        self.assertTrue((ROOT / 'native_renderer/src/main.cpp').exists())
+        self.assertEqual((ROOT / 'release/ASTRA-COSMOS/bin/astra_native').read_bytes()[:4], b'\x7fELF')
+
+    def test_encoding(self):
+        for relative in ('START.bat', 'scripts/terminal.bat'):
+            data = (ROOT / relative).read_bytes()
+            self.assertFalse(data.startswith(b'\xef\xbb\xbf'))
+            self.assertNotIn(b'\n', data.replace(b'\r\n', b''))
+            self.assertIn('chcp 65001 >nul', data.decode())
 
     def test_declared_dependencies_reused(self):
         versions = {'astra-core': '0.1.1', 'supabase': '2.0', 'python-dotenv': '1.0', 'httpx': '0.24'}
@@ -76,10 +106,6 @@ class BootstrapStaticTests(unittest.TestCase):
     def test_changed_declaration_requests_install(self):
         with patch.object(checker.metadata, 'version', return_value='0.1.1'), patch.object(checker.metadata, 'requires', return_value=[]):
             self.assertEqual(checker.main(), 1)
-
-    def test_encoding(self):
-        self.assertTrue((ROOT / 'scripts/start_astra.ps1').read_bytes().startswith(b'\xef\xbb\xbf'))
-        self.assertIn(b'\r\n', (ROOT / 'START.bat').read_bytes())
 
 
 if __name__ == '__main__':

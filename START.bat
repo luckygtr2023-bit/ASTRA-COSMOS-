@@ -1,25 +1,27 @@
 @echo off
-setlocal DisableDelayedExpansion
+setlocal EnableExtensions DisableDelayedExpansion
 chcp 65001 >nul
-cd /d "%~dp0"
-if errorlevel 1 goto root_failed
-if not exist "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" goto powershell_missing
-"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start_astra.ps1"
-set "ASTRA_EXIT=%ERRORLEVEL%"
-if not "%ASTRA_EXIT%"=="0" (
-  echo [ASTRA📡🌌] STARTUP FAILED
-  echo PowerShell/bootstrap exit code: %ASTRA_EXIT%
-  echo The actual PowerShell error is shown above.
-  echo Check scripts\start_astra.ps1. Organization Group Policy can override the process-scoped bypass.
-  pause
-)
-exit /b %ASTRA_EXIT%
+set "ASTRA_ROOT=%~dp0"
+cd /d "%ASTRA_ROOT%"
+set "ASTRA_CODE=%ERRORLEVEL%"
+if not "%ASTRA_CODE%"=="0" goto root_failed
+if not exist "scripts\terminal.bat" goto missing_terminal
+rem CALL uses a constant relative path to avoid re-expanding percent signs in the root.
+call scripts\terminal.bat
+exit /b %ERRORLEVEL%
+
 :root_failed
-echo ASTRA STARTUP FAILED: Cannot access the project directory.
+echo [ASTRA📡🌌] STARTUP FAILED
+echo Stage: PROJECT_ROOT
+echo Error: Unable to enter project root "%ASTRA_ROOT%".
+echo Exit code: %ASTRA_CODE%
 pause
-exit /b 1
-:powershell_missing
-echo ASTRA STARTUP FAILED: Windows PowerShell is unavailable.
-echo Check your Windows installation. No software was downloaded.
+exit /b %ASTRA_CODE%
+
+:missing_terminal
+echo [ASTRA📡🌌] STARTUP FAILED
+echo Stage: BOOTSTRAP
+echo Error: Required scripts\terminal.bat is missing. Restore it from this repository.
+echo Exit code: 2
 pause
-exit /b 1
+exit /b 2
