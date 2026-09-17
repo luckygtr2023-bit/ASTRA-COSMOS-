@@ -1,0 +1,23 @@
+{
+  "runtime_sha256": null,
+  "reviewer": null,
+  "source_commit": null,
+  "gpu_name": null,
+  "vulkan_version": null,
+  "test_record": null,
+  "checks": {
+    "windows_x64_release_build": "BLOCKED",
+    "real_window": "NOT VERIFIED",
+    "real_vulkan": "NOT VERIFIED",
+    "actual_gpu": "NOT VERIFIED",
+    "valid_shaders_assets": "NOT VERIFIED",
+    "scientific_engine_connected": "BLOCKED",
+    "persistent_render_loop": "BLOCKED",
+    "clean_shutdown": "NOT VERIFIED",
+    "dll_dependency_audit": "NOT VERIFIED",
+    "clean_machine_without_tools": "NOT VERIFIED",
+    "offline_second_launch": "NOT VERIFIED",
+    "readiness_protocol_v1": "BLOCKED",
+    "userdata_outside_runtime": "NOT VERIFIED"
+  }
+}

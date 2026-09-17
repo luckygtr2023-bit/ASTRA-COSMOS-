@@ -1,0 +1,4 @@
+# Windows launch scripts intentionally retain CRLF line endings.
+START.bat whitespace=cr-at-eol
+scripts/terminal.bat whitespace=cr-at-eol
+distribution/*.cmd whitespace=cr-at-eol

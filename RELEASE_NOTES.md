@@ -1,5 +1,21 @@
 # ASTRA COSMOS — Release Notes
 
+## Unreleased — private-runtime bootstrap infrastructure
+
+**Distribution: BLOCKED. Windows/GPU/clean-machine execution: NOT VERIFIED.**
+
+- Added Windows GUI bootstrap host source configured for .NET single-file/self-contained publishing; it has not been built in this environment.
+- START.bat now invokes only the compiled distribution host, never CMake, Python setup or the developer source-build script.
+- Added pinned GitHub asset policy, SHA-256 archive/per-file checks, constrained extraction, private version storage, offline installed-version selection and staged activation/rollback code.
+- Added build-machine-only archive/catalog/ZIP tooling, adversarial policy tests and acceptance evidence gates. The checked-in catalog is BLOCKED; the current mock/diagnostic native runtime is rejected.
+- No prebuilt production runtime, ready manifest, public release, installer or verified self-contained application was produced. Developer tools are not end-user requirements.
+- See `ASTRA_SELF_BOOTSTRAP_IMPLEMENTATION_REPORT.md` and `ASTRA_SELF_BOOTSTRAP_ARCHITECTURE.md`.
+
+## Historical 0.1.1 development notes — not a current Windows release
+
+The entries below describe earlier development artifacts and claims. They are not evidence of a working or currently distributed Windows application. The old launcher EXEs were removed; current native-production blockers are documented separately.
+
+
 **Release:** 0.1.1 (astra-core 0.1.1, native renderer 0.1.0) — **Date:** 2026-09-17 — **Branch:** `arena/01a0a5a2-astra-cosmos`  
 **Author:** Lucky Kumar — **Copyright © 2026 Lucky Kumar** — **Build:** CMake 3.28 / Ninja / C++20 / Vulkan 1.3 Release -O3 LTO  
 **Launcher:** `ASTRA COSMOS.exe` (46K) → `native_renderer/astra_native` (161K)

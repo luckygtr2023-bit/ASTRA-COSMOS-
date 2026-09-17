@@ -61,3 +61,13 @@ Thumbs.db
 !native_renderer/tests/**
 ignore pyc
 native_renderer/tests/__pycache__/
+
+# Keep portable Windows bootstrap regression tests.
+!scripts/tests/
+!scripts/tests/*.py
+
+# Self-bootstrap development/build outputs and distribution tests
+bootstrap/src/bin/
+bootstrap/src/obj/
+!distribution/tests/
+!distribution/tests/*.py

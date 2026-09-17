@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "state": "blocked",
+  "reason": "No verified Windows production runtime has been published. This source checkout is not an end-user release. Obtain a published ASTRA distribution when it becomes available; no development tools are needed or installed by this bootstrapper."
+}

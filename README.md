@@ -6,7 +6,49 @@
 **Version:** 0.1.1 (astra-core) / 0.1.0 (native renderer) — `pyproject.toml` / `native_renderer/CMakeLists.txt`  
 **Approximate development period:** ~1 month — developed iteratively over ~1 month (architecture, science, rendering, optimization, integration, testing, product). Not exact hours.
 
-**Launcher:** `ASTRA COSMOS.exe` → `native_renderer/astra_native` (real production entry point, `src/main.cpp`)
+## Windows distribution status — BLOCKED
+
+**A working ASTRA Windows runtime distribution is not available yet.** The native target still contains mock/diagnostic Vulkan execution and incomplete scientific integration. Windows build, GPU rendering and clean-machine launch are **NOT VERIFIED**. Do not download the source archive expecting a ready-to-run simulator.
+
+The self-bootstrap infrastructure is now implemented in source:
+
+```text
+Published ASTRA-COSMOS.zip (not yet available)
+    → extract
+    → START.bat
+    → compiled ASTRA COSMOS.exe bootstrap host
+    → verified prebuilt private runtime
+    → real simulator
+```
+
+After a verified first installation, the intended normal action is simply to double-click **ASTRA COSMOS.exe**, without START.bat, a terminal, or a network request. **This user workflow has not yet been tested or released.**
+
+End users will not install CMake, Visual Studio, MSVC, Ninja, Git, Python, pip or Vulkan SDK. Build tools remain on the release machine. Any necessary Python/.NET application runtime must be bundled privately; Windows and a compatible GPU-vendor driver remain system requirements.
+
+**Current behavior:** START.bat only invokes the compiled distribution host. In this source checkout that EXE is absent, so it explains that no verified release is available and keeps the error visible. It does not compile ASTRA or install developer tools. The checked-in release catalog is deliberately `blocked`; no fabricated runtime URL or checksum is provided.
+
+See:
+
+- [Self-bootstrap architecture](ASTRA_SELF_BOOTSTRAP_ARCHITECTURE.md): private runtime, manifests, download security, updates/rollback, offline behavior and build-machine commands.
+- [Implementation report](ASTRA_SELF_BOOTSTRAP_IMPLEMENTATION_REPORT.md): exact implementation and verification status.
+- [Native runtime blockers](ASTRA_WINDOWS_NATIVE_RUNTIME_BLOCKERS.md): remaining real rendering/scientific integration work.
+
+### Developer source workflow — not the user distribution
+
+Existing developer commands remain available in the checkout, but are not packaged in the end-user ZIP:
+
+```bat
+rem Developer-only source checks/build attempt, requiring development tools.
+scripts\terminal.bat
+rem Optional Python development/product environment preparation.
+scripts\terminal.bat --setup-python
+rem Explicit diagnostics; not production simulation/GPU verification.
+scripts\terminal.bat --headless
+```
+
+The optional scientific/product Python dependencies remain declared by `pyproject.toml`. Supabase remains optional for local scientific functionality; bootstrap code never requests an account or reads .env credentials. The complete runtime's offline/scientific behavior is still a release acceptance gate.
+
+**Release builders only:** `distribution/build_bootstrap.cmd` uses the .NET SDK to publish the proposed Windows GUI host with a private runtime. `distribution/release_tools.py` audits runtime archives, enforces reviewed acceptance evidence, generates pinned catalogs and assembles the bootstrap ZIP. Neither tool is shipped as an end-user prerequisite. The release tool explicitly refuses the known diagnostic native main. No public release was uploaded.
 
 > Source of Truth: This README documents the actual repository as inspected 2026-09-17. No Godot, no Blender, no fabrication.
 
@@ -266,7 +308,7 @@ AI-assisted, not individual authorship of entire project.
 
 ```
 ASTRA-COSMOS/
-├── ASTRA COSMOS.exe (923K PE32+ x64 Windows Console, MZ 4d5a — repaired 2026-09-17 via zig cc x86_64-windows-gnu)
+├── START.bat → compiled distribution host (not built yet; source-building scripts are developer-only)
 ├── README.md (this file)
 ├── COPYRIGHT.md, RELEASE_NOTES.md, ASTRA_COSMOS_COMPLETE_PROJECT_SUMMARY.md (571 lines), ASTRA_FINAL_RELEASE_AUDIT.md
 ├── astra/ (core, celestial, mathematics, physics, motion, orbital, nbody, relativity, blackhole, spacetime, world, destruction, evolution, interaction, ingestion, product/supabase)
@@ -274,7 +316,7 @@ ASTRA-COSMOS/
 ├── supabase/ (config.toml, migrations 11 tables 7 buckets RLS)
 ├── tests/ (~84 scientific tests)
 ├── visualization/ (placeholder, no engine)
-├── release/ASTRA-COSMOS/ (ASTRA COSMOS.exe 923K PE, bin/astra_native 161K ELF, shaders, assets, documentation, config, runtime, data)
+├── release/ASTRA-COSMOS/ (bin/astra_native 161K ELF, shaders, assets, documentation, config, runtime, data)
 ├── GODOT_PHASES/ (spec markdowns, NOT engine)
 └── pyproject.toml (astra-core 0.1.1)
 ```
@@ -284,132 +326,24 @@ ASTRA-COSMOS/
 ## 16. Build Instructions (Real)
 
 ```bash
-pip install -e . && pip install pytest supabase python-dotenv httpx
-cmake -S native_renderer -B /tmp/astra_build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build /tmp/astra_build -j2  # → /tmp/astra_build/astra_native 161K + "ASTRA COSMOS.exe" 46K
+pip install -e ".[dev]"
+cmake -S native_renderer -B /tmp/astra_build -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTRA_BUILD_LAUNCHER=OFF
+cmake --build /tmp/astra_build -j2  # builds the native runtime
 pytest native_renderer/tests/ -q  # 91 passed
 python native_renderer/tools/validate_native_project.py  # 221 OK (from repo root)
 bash -c 'cd ASTRA-COSMOS && /tmp/astra_build/astra_native --headless'  # 23/23
-bash -c 'cd ASTRA-COSMOS && "/tmp/astra_build/ASTRA COSMOS.exe" --headless'  # via launcher
 # Windows (MSVC/mingw)
-cmake -S native_renderer -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release  # → "ASTRA COSMOS.exe" PE x64
+cmake -S native_renderer -B build -DCMAKE_BUILD_TYPE=Release -DASTRA_BUILD_LAUNCHER=OFF
+cmake --build build --config Release --target astra_native  # Windows build NOT VERIFIED
 ```
 
 ---
 
-## 17. Windows Executable Diagnosis (17 Attributes — Full)
+## 17. Historical Windows launcher diagnosis
 
-**Original state (pre-repair 2026-09-16):** `ASTRA COSMOS.exe` 46136 bytes `7f 45 4c 46` ELF64 `elf64-x86-64` UNIX System V `INTERP /lib64/ld-linux-x86-64.so.2` entry 0x4d20 GCC 12.2.0 — Linux `g++` named `.exe`. Valid ELF, not corrupted, but **wrong format for Windows** — expected `4d 5a` MZ PE.
+The old root and release `ASTRA COSMOS.exe` files were obsolete user-facing wrappers, not the native scientific runtime. Both have been inspected and removed. The native `astra_native` artifacts and C++ source remain. The PowerShell bootstrap was subsequently removed after the user reported an unsigned-script policy failure. The old BAT-only source-building startup is now developer-only; the new distribution host is not yet compiled or released.
 
-**Repaired state (2026-09-17 via `python3 -m ziglang c++ -target x86_64-windows-gnu`):** `ASTRA COSMOS.exe` **945152 bytes (923K)** `4d 5a 78 00` **MZ** `PE\0\0` at `e_lfanew 0x78` **VALID PE** — see verification below.
-
-| # | Attribute | Original (ELF) | Repaired (PE) | Tool |
-|---|-----------|----------------|---------------|------|
-| 1 | Exact filename | `ASTRA COSMOS.exe` (space) | `ASTRA COSMOS.exe` | `ls -lb` |
-| 2 | Extension | `.exe` | `.exe` | `ls` |
-| 3 | Size | 46136 | 945152 | `stat` |
-| 4 | File type | ELF64 LSB pie executable | PE32+ executable (console) | `od -tx1 -N4` |
-| 5 | Binary format | ELF `7f 45 4c 46` | PE `4d 5a` MZ | `od` |
-| 6 | Valid PE | NO (ELF) | YES `PE\0\0` at 0x78 | `python struct` |
-| 7 | Architecture | X86-64 | X86-64 `Machine 0x8664` | `readelf`/`struct` |
-| 8 | OS target | UNIX System V Linux | Windows | `readelf OS/ABI` vs PE |
-| 9 | Compiler | GCC 12.2.0 Debian native | zig cc 0.16.0 (clang 21.1.0) `x86_64-windows-gnu` | `zig version` |
-| 10 | Build config | Release -O3 | -O2 -std=c++20 (zig) | `CMake` |
-| 11 | Subsystem | N/A (ELF) | CONSOLE 3 | `opt[68:70]` |
-| 12 | Entry point | 0x4d20 (ELF) | RVA 0xa350 (PE) | `readelf`/`struct` |
-| 13 | Dependencies | `ld-linux-x86-64.so.2` libstdc++ | `KERNEL32.dll` `api-ms-win-crt*` | `readelf -l` / strings |
-| 14 | Corruption | NO (32 sections) | NO (7 sections) | `readelf -l` / `struct` |
-| 15 | Linux ELF | YES (cause) | NO (is PE) | `od` |
-| 16 | x86/x64/ARM | x64 | x64 `0x8664` | `Machine` |
-| 17 | Matches target | NO (expects PE32+ x64 Console) | YES | `Machine 0x8664` `Subsystem CONSOLE` `PE32+ 0x20b` |
-
-**15 Diagnosis Fields:**
-
-| Field | Original | Repaired |
-|-------|----------|----------|
-| Filename | ASTRA COSMOS.exe | ASTRA COSMOS.exe |
-| Size | 46136 | 945152 |
-| File type | ELF64 | PE32+ |
-| Valid PE | NO | YES |
-| Architecture | X86-64 | X86-64 (0x8664) |
-| OS target | Linux | Windows |
-| Compiler | GCC 12.2.0 | zig cc 0.16.0 clang 21.1.0 |
-| Subsystem | N/A | CONSOLE 3 |
-| Entry | 0x4d20 | RVA 0xa350 |
-| Dependencies | ld-linux | KERNEL32.dll |
-| Corrupted | NO | NO |
-| Is ELF | YES | NO |
-| Is x64 | YES | YES |
-| Matches target | NO | YES |
-| Likely cause | Linux binary named .exe — `g++` not `x86_64-w64-mingw32-g++`/MSVC | **REPAIRED** via zig `x86_64-windows-gnu` |
-
-**Likely cause (original failure):** Linux `g++` built ELF `7f 45 4c 46` but output named `.exe` via CMake `OUTPUT_NAME "ASTRA COSMOS" SUFFIX ".exe"` without Windows toolchain. Windows loader checks MZ (`4d 5a`) then `e_lfanew` → `PE\0\0` → `Machine 0x8664` → fails `ERROR_BAD_EXE_FORMAT` (193) → dialog "This app can't run on your PC. To find a version for your PC, check with software publisher." Source already cross-platform (`#ifdef _WIN32` `GetModuleFileNameA`/`CreateProcessA` vs `/proc/self/exe`/`fork+execv`), only toolchain needed.
-
-**Evidence:** `od -An -tx1 -N4` original `7f 45 4c 46` vs repaired `4d 5a 78 00`; `readelf -h` original `Class ELF64 OS/ABI UNIX Machine X86-64 Type DYN` vs repaired python `Machine 0x8664 OptMagic 0x20b Subsystem 3`; `objdump -f` original `elf64-x86-64` vs repaired `pe-x86-64` equivalent; `strings` original `ld-linux` vs repaired `KERNEL32.dll`; `stat` 46136 vs 945152.
-
-**Valid Windows PE would be:** `MZ` `PE32+ x86-64` `0x8664` `Subsystem CONSOLE` `KERNEL32.dll` `msvcrt`/`api-ms-win-crt*` — **now IS** after repair.
-
----
-
-## 18. Repair (Minimum — ACTUAL REPAIR PERFORMED 2026-09-17)
-
-**Target:** Windows x64 PE32+ `Machine 0x8664` `Subsystem CONSOLE` `PE32+ 0x20b` via Windows compiler integrated CMake preserving real production app.
-
-**Toolchain used:** `zig cc 0.16.0` (clang 21.1.0) via `pip install ziglang --break-system-packages` — provides `x86_64-windows-gnu` without apt/root, verified via `python3 -m ziglang version` 0.16.0 and `od 4d5a`. Alternative `x86_64-w64-mingw32-g++`/MSVC also valid; zig was available when `apt` blocked (`deb.debian.org Connection failed`, `mingw-w64` not found, `ziglang.org` SSL blocked but `pip` succeeded).
-
-**Existing CMake already Windows-ready:** `add_executable(astra_launcher launcher/launcher.cpp)` `OUTPUT_NAME "ASTRA COSMOS" SUFFIX ".exe"` cross-platform (`#ifdef _WIN32` `GetModuleFileNameA`/`CreateProcessA` vs `/proc/self/exe`/`fork+execv`), `find_package(Threads)`, `SUBSYSTEM:CONSOLE` for MSVC, `-O3` for GNU.
-
-**Commands executed (from repo root `/home/user/ASTRA-COSMOS-`):**
-```bash
-pip install ziglang --break-system-packages   # 97.9 MB, zig 0.16.0
-python3 -m ziglang c++ -target x86_64-windows-gnu -O2 -std=c++20 -o /tmp/launcher_win.exe native_renderer/launcher/launcher.cpp
-# verified: od -An -tx1 -N4 /tmp/launcher_win.exe → 4d 5a 78 00, python struct → Machine 0x8664 PE32+ Subsystem CONSOLE KERNEL32.dll
-cp /tmp/launcher_win.exe "ASTRA COSMOS.exe"                     # 945152 bytes MZ
-cp /tmp/launcher_win.exe "release/ASTRA-COSMOS/ASTRA COSMOS.exe" # same
-# also valid via CMake with wrapper:
-# echo 'set(CMAKE_SYSTEM_NAME Windows)' > toolchain-zig.cmake
-# echo 'set(CMAKE_C_COMPILER "python3 -m ziglang cc -target x86_64-windows-gnu")' >> toolchain-zig.cmake
-# echo 'set(CMAKE_CXX_COMPILER "python3 -m ziglang c++ -target x86_64-windows-gnu")' >> toolchain-zig.cmake
-# cmake -S native_renderer -B /tmp/win -G Ninja -DCMAKE_TOOLCHAIN_FILE=toolchain-zig.cmake -DCMAKE_BUILD_TYPE=Release
-# cmake --build /tmp/win -j2
-```
-
-**Preserves:** `src/main.cpp` real production entry point (`astra_native`), no placeholder/demo/headless-only, no second implementation. Launcher remains 258 lines, resolves install dir, validates `shaders/common/common.glsl` + `astra_native`, forwards `--headless`/`--help`, handles spaces in path (`/tmp/test space`) verified on Linux ELF before repair.
-
-**Honesty:** Previous ELF 46K was Linux `g++` output; now PE 923K is Windows `zig` output — larger because statically links C++ stdlib/filesystem for Windows (vs dynamic libstdc++ on Linux). `strip`/`objcopy --strip-all` not applicable to PE via GNU (invalid ELF), size 923K is expected for C++20 filesystem on Windows.
-
-**MSVC alternative (native Windows):**
-```bash
-cmake -S native_renderer -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build --config Release  # → "ASTRA COSMOS.exe" PE x64
-```
-
----
-
-## 19. Post-Repair Validation (11 Checks — ACTUAL)
-
-| # | Check | Expected | Result (2026-09-17) | Tool |
-|---|-------|----------|---------------------|------|
-| 1 | File exists | `ASTRA COSMOS.exe` PE 40-1000K | **PASS** 945152 (923K) | `ls -lh` |
-| 2 | Valid PE | MZ `4d 5a` `PE\0\0` | **PASS** `4d 5a 78 00` `PE` at 0x78 `0x20b` | `od` + `struct` |
-| 3 | Correct arch | x64 `0x8664` | **PASS** `Machine 0x8664` `PE32+` | `struct` |
-| 4 | Dependencies | `KERNEL32.dll` etc | **PASS** strings contain `KERNEL32.dll` `api-ms-win-crt*` | `strings` / `python` |
-| 5 | Subsystem | CONSOLE | **PASS** 3 | `opt[68:70]` |
-| 6 | Application starts | `.\ASTRA COSMOS.exe --help` launches | **PARTIALLY** — Windows PE cannot exec on Linux (`cannot execute binary file: Exec format error` expected); Linux ELF launcher logic was VERIFIED pre-repair (`/tmp/astra_build/astra_native --headless` 23/23, spaces path). On Windows, expected to resolve dir via `GetModuleFileNameA` and `CreateProcessA`. | `bash` (Linux) / manual Windows |
-| 7 | Production launches | → `astra_native` + 23 shaders | **PARTIALLY** — Linux path verified; Windows needs `astra_native.exe` (currently Linux ELF at `release/bin/astra_native` 161K). Launcher checks both `astra_native` and `astra_native.exe` (`nativeCandidates` + `.exe`), so will find Windows build when provided. | `launcher.cpp` |
-| 8 | No mock as production | Real launcher, not placeholder | **PASS** 258 lines, not demo | `wc -l` |
-| 9 | Exit codes | 0 success, 1 missing files | **PASS** (logic identical) | `launcher.cpp` |
-| 10 | Startup errors | `Missing required files` when absent | **PASS** | `launcher.cpp` |
-| 11 | Renderer/Vulkan | Mock 3 candidates vs RTX | **PARTIALLY** — Mock `RTX 4090 Mock VRAM 24564` HEADLESS/MOCK VERIFIED (23/23, 52,0,0, 10 passes); REAL GPU **NOT VERIFIED** (no `vulkaninfo`, `libvulkan.so`, SDK) — honest. | `astra_native --headless` |
-
-**Overall:** Steps 1-5 **VERIFIED PE** (previously failed, now pass). Steps 6-7 require Windows execution (cannot run PE on Linux — expected `Exec format error`); logic verified via identical source on Linux. Steps 8-10 PASS. Step 11 mock VERIFIED, REAL GPU NOT VERIFIED — no fabrication.
-
-**To fully verify on Windows:**
-```powershell
-.\ASTRA` COSMOS.exe --help        # should print launcher help + RHI init
-.\ASTRA` COSMOS.exe --headless     # should validate 5 scales, 52,0,0, 23/23
-# expect: Machine 0x8664, Subsystem CONSOLE, imports KERNEL32.dll
-```
+For historical evidence, see `ASTRA_EXE_FORENSIC_DIAGNOSIS.md`; for current architecture, deletion evidence, tests and limitations, see `ASTRA_WINDOWS_STARTUP_REPORT.md`. Historical reports are not current launch instructions or proof of runtime success.
 
 ---
 
@@ -433,7 +367,7 @@ cmake -S native_renderer -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake -
 | GPU VFX | IMPLEMENTED | `vfx/gpu_particles` 1M + `volumetrics` 0.32ms |
 | Cosmic Audio | IMPLEMENTED | `src/audio/` `HearUniverse 4` + `test_cosmic_audio` 18 |
 | Supabase | IMPLEMENTED | `supabase/migrations` 11 tables 7 buckets RLS |
-| Windows EXE | IMPLEMENTED (PE VERIFIED) | `ASTRA COSMOS.exe` 923K PE32+ x64 CONSOLE MZ 4d5a Machine 0x8664 KERNEL32.dll via zig 0.16.0, launcher logic VERIFIED (spaces, headless) |
+| Windows distribution | BLOCKED | Bootstrap source and policy tests exist; Windows runtime and clean-machine launch NOT VERIFIED |
 | Testing | IMPLEMENTED | `native_renderer/tests` 91 + `validate` 221 + `tests/` ~84 |
 
 ---
@@ -442,10 +376,10 @@ cmake -S native_renderer -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake -
 
 ```bash
 pip install -e . && pip install pytest
-cmake -S native_renderer -B /tmp/astra_build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build /tmp/astra_build -j2
+cmake -S native_renderer -B /tmp/astra_build -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTRA_BUILD_LAUNCHER=OFF && cmake --build /tmp/astra_build -j2
 pytest native_renderer/tests/ -q  # 91
 python native_renderer/tools/validate_native_project.py  # 221
-"/tmp/astra_build/ASTRA COSMOS.exe" --headless
+/tmp/astra_build/astra_native --headless
 ```
 
 ---
@@ -464,6 +398,6 @@ Copyright © 2026 Lucky Kumar. Original source protected. Third-party retains li
 
 ## 24. Final Notes
 
-~1 month iterative. Launcher is primary `ASTRA COSMOS.exe` → `astra_native`. Science authoritative. Wormholes/warp NOT established — labeled.
+~1 month iterative. The intended distribution uses a compiled private-runtime bootstrap host; no verified production ZIP is available. Obsolete launcher binaries remain removed. Science authoritative. Wormholes/warp NOT established — labeled.
 
 *README describes actual repository as inspected 2026-09-17 via `ls -R`, `cat`, `readelf`, `pytest`, `validate`, `cmake --build`. No fabrication.*
