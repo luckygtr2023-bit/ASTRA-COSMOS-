@@ -50,12 +50,17 @@ if(EXISTS "/home/user/glslang/CMakeLists.txt")
 endif()
 
 # Compiler flags for AAA quality: strict, Werror-ish, optimization
-add_compile_options(-Wall -Wextra -Wpedantic -Wconversion -Wshadow)
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    add_compile_options(-O3 -march=native -flto)
-    add_link_options(-flto)
+if(MSVC)
+    # Windows bootstrap builds the existing native target, not the legacy launcher.
+    add_compile_options(/W4 /utf-8 /permissive-)
 else()
-    add_compile_options(-O1 -g -DDEBUG)
+    add_compile_options(-Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        add_compile_options(-O3 -march=native -flto)
+        add_link_options(-flto)
+    else()
+        add_compile_options(-O1 -g -DDEBUG)
+    endif()
 endif()
 
 # Core library: astra_renderer

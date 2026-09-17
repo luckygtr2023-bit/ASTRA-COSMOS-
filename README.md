@@ -6,7 +6,43 @@
 **Version:** 0.1.1 (astra-core) / 0.1.0 (native renderer) — `pyproject.toml` / `native_renderer/CMakeLists.txt`  
 **Approximate development period:** ~1 month — developed iteratively over ~1 month (architecture, science, rendering, optimization, integration, testing, product). Not exact hours.
 
-**Launcher:** `ASTRA COSMOS.exe` → `native_renderer/astra_native` (real production entry point, `src/main.cpp`)
+**Recommended Windows launcher:** `START.bat` → `scripts/start_astra.ps1` → Windows `astra_native.exe` (existing `native_renderer/src/main.cpp`). The old EXE is retained for developers, not used by START.bat.
+
+## Windows quick start (current status)
+
+1. Open the ASTRA COSMOS folder.
+2. Double-click **START.bat**.
+3. Wait for **ASTRA📡🌌** initialization.
+4. The launcher checks dependencies and attempts an existing CMake build if the Windows native renderer is missing.
+5. ASTRA starts automatically **if a compatible native build is available**. Logs remain visible; failures do not silently close the terminal.
+
+**Important limitation:** This checkout packages a Linux native binary, not a Windows renderer. Source inspection also shows mock Vulkan initialization and a finite diagnostic loop, not a persistent windowed simulator. START.bat is a bootstrapper, **not the scientific engine**; it cannot turn those implementations into a working GPU GUI. It reports a normal-mode exit without readiness as a startup failure, even if the native exit code is zero. **Windows execution and GPU rendering are NOT VERIFIED.** See [the startup report](ASTRA_WINDOWS_STARTUP_REPORT.md). This current-status section supersedes historical EXE/Windows-ready claims later in this README.
+
+Standard-user startup uses Windows PowerShell 5.1 without profiles, elevation, or an execution-policy bypass. If organizational policy blocks the script, consult your administrator; the console stays available. After diagnostics press ENTER; if PowerShell remains open, type `exit`.
+
+The native executable needs no Python or Supabase. Missing `.env` does not block local diagnostics. For optional accounts, configure `ASTRA_SUPABASE_URL` and `ASTRA_SUPABASE_PUBLISHABLE_KEY` using `.env.example` and the existing product layer. START does not execute `.env` or print its values. Remove the stray Markdown fence in the existing example when copying it. No credentials are generated.
+
+### Manual developer startup (separate from double-click startup)
+
+From a 64-bit Windows PowerShell / Visual Studio developer terminal:
+
+```powershell
+# Optional existing Python product layer; reuse .venv/venv, otherwise create .venv.
+# Installs only pyproject.toml dependencies via pip, not development extras.
+powershell.exe -NoProfile -File .\scripts\start_astra.ps1 -SetupPython
+
+# Explicit diagnostic mode (never chosen silently by START.bat)
+powershell.exe -NoProfile -File .\scripts\start_astra.ps1 -Headless
+
+# Existing native CMake target, requires CMake >=3.28 and a C++20 toolchain.
+cmake -S native_renderer -B native_renderer/build-windows -DCMAKE_BUILD_TYPE=Release -DASTRA_BUILD_LAUNCHER=OFF
+cmake --build native_renderer/build-windows --config Release --target astra_native
+.\native_renderer\build-windows\Release\astra_native.exe
+```
+
+Single-configuration generators place `astra_native.exe` directly in `build-windows`. Run it from the repository root for shader paths. No compiler, driver, SDK, DLL or Python interpreter is downloaded automatically: use official providers when missing. Windows build portability is **not build-verified**. Python 3.9+ is required only for `-SetupPython`; `pip install -e .` follows the existing `pyproject.toml`. Subsequent launches check metadata instead of reinstalling. Existing Linux/developer commands below remain available.
+
+Logs append to `logs/astra_startup.log` (ignored by Git). Both native stdout and stderr are redacted and labeled there, with PID, stage and exit code. Review logs before sharing; arbitrary future child output cannot be guaranteed secret-free. `-NoPause` is for developer automation only; START.bat never uses it.
 
 > Source of Truth: This README documents the actual repository as inspected 2026-09-17. No Godot, no Blender, no fabrication.
 
@@ -464,6 +500,6 @@ Copyright © 2026 Lucky Kumar. Original source protected. Third-party retains li
 
 ## 24. Final Notes
 
-~1 month iterative. Launcher is primary `ASTRA COSMOS.exe` → `astra_native`. Science authoritative. Wormholes/warp NOT established — labeled.
+~1 month iterative. Recommended Windows bootstrap is `START.bat` → PowerShell → `astra_native.exe`; the EXE launcher is historical. Science authoritative. Wormholes/warp NOT established — labeled.
 
 *README describes actual repository as inspected 2026-09-17 via `ls -R`, `cat`, `readelf`, `pytest`, `validate`, `cmake --build`. No fabrication.*
